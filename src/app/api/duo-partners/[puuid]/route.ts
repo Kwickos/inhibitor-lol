@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMatchIds, getMatch } from '@/lib/cache';
+import { getMatchIds, getMatch, getSummoner } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { RiotApiError, getSummonerByPuuid } from '@/lib/riot-api';
+import { RiotApiError } from '@/lib/riot-api';
 
 interface Params {
   params: Promise<{
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       frequentTeammates.map(async (teammate) => {
         let profileIconId = 1; // Default icon
         try {
-          const summoner = await getSummonerByPuuid(teammate.puuid, region);
+          const summoner = await getSummoner(teammate.puuid, region);
           profileIconId = summoner.profileIconId;
         } catch {
           // Use default icon if fetch fails
