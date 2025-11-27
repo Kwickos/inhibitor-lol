@@ -199,7 +199,7 @@ export async function getChampionMasteries(
 // Spectator API
 export async function getCurrentGame(puuid: string, region: RegionKey): Promise<CurrentGameInfo | null> {
   const host = getPlatformHost(region);
-  const url = `https://${host}/lol/spectator/v5/active-games/by-summoner/${puuid}`;
+  const url = `https://${host}/lol/spectator/v5/active-games/by-puuid/${puuid}`;
   try {
     return await fetchRiotApi<CurrentGameInfo>(url);
   } catch (error) {
