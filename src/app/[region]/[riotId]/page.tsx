@@ -3,17 +3,17 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, AlertCircle, Loader2, History, BarChart3 } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader2, History, BarChart3, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search-bar';
 import { Logo } from '@/components/logo';
 import { SummonerHeader } from '@/components/summoner-header';
 import { RankCard, UnrankedCard } from '@/components/rank-card';
-import { LiveGameBanner } from '@/components/live-game-banner';
 import { MatchList } from '@/components/match-list';
 import { ChampionStatsCard } from '@/components/champion-stats-card';
 import { DuoPartnersCard } from '@/components/duo-partners-card';
 import { AnalysisPanel } from '@/components/analysis-panel';
+import { LiveGamePanel } from '@/components/live-game-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { useSearchHistory } from '@/hooks/use-search-history';
@@ -86,7 +86,14 @@ export default function SummonerPage({ params }: PageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'analysis'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'livegame'>('overview');
+
+  // Auto-switch to live game tab when player is in game
+  useEffect(() => {
+    if (data?.liveGame) {
+      setActiveTab('livegame');
+    }
+  }, [data?.liveGame]);
 
   const { addToHistory } = useSearchHistory();
 
@@ -188,19 +195,24 @@ export default function SummonerPage({ params }: PageProps) {
           isRefreshing={isRefreshing}
         />
 
-        {/* Live Game Banner */}
-        {data.liveGame && (
-          <LiveGameBanner
-            puuid={data.account.puuid}
-            region={region}
-            inGame={true}
-            gameData={data.liveGame}
-          />
-        )}
-
         {/* Tab Navigation */}
         <div className="relative">
           <div className="flex items-center gap-1 p-1 bg-card/50 backdrop-blur-sm rounded-xl border border-border/30 w-fit">
+            {/* Live Game Tab - Only show when in game */}
+            {data.liveGame && (
+              <TabButton
+                active={activeTab === 'livegame'}
+                onClick={() => setActiveTab('livegame')}
+                icon={
+                  <div className="relative">
+                    <Radio className="h-4 w-4" />
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f59e0b] rounded-full animate-pulse" />
+                  </div>
+                }
+                label="Live Game"
+                highlight
+              />
+            )}
             <TabButton
               active={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
@@ -218,7 +230,20 @@ export default function SummonerPage({ params }: PageProps) {
 
         {/* Tab Content */}
         <AnimatePresence mode="wait">
-          {activeTab === 'overview' ? (
+          {activeTab === 'livegame' && data.liveGame ? (
+            <motion.div
+              key="livegame"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <LiveGamePanel
+                currentPuuid={data.account.puuid}
+                gameData={data.liveGame}
+              />
+            </motion.div>
+          ) : activeTab === 'overview' ? (
             <motion.div
               key="overview"
               initial={{ opacity: 0, y: 10 }}
@@ -351,11 +376,13 @@ function TabButton({
   onClick,
   icon,
   label,
+  highlight,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  highlight?: boolean;
 }) {
   return (
     <button
@@ -363,14 +390,21 @@ function TabButton({
       className={cn(
         'relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
         active
-          ? 'text-foreground'
-          : 'text-muted-foreground hover:text-foreground/80'
+          ? highlight ? 'text-[#f59e0b]' : 'text-foreground'
+          : highlight
+            ? 'text-[#f59e0b]/70 hover:text-[#f59e0b]'
+            : 'text-muted-foreground hover:text-foreground/80'
       )}
     >
       {active && (
         <motion.div
           layoutId="activeTab"
-          className="absolute inset-0 bg-background rounded-lg shadow-sm border border-border/50"
+          className={cn(
+            'absolute inset-0 rounded-lg shadow-sm border',
+            highlight
+              ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30'
+              : 'bg-background border-border/50'
+          )}
           transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
         />
       )}
