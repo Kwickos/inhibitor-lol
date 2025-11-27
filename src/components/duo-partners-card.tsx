@@ -127,7 +127,7 @@ function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index
           <span className="text-muted-foreground font-normal">#{partner.tagLine}</span>
         </div>
         <div className="text-xs text-muted-foreground">
-          {partner.gamesPlayed} parties ranked ensemble
+          {partner.gamesPlayed} ranked games together
         </div>
       </div>
 
