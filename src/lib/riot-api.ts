@@ -92,11 +92,6 @@ async function fetchWithRetry<T>(
 }
 
 async function fetchRiotApi<T>(url: string): Promise<T> {
-  // Debug logging (using error level to ensure visibility in Vercel)
-  const keyPreview = RIOT_API_KEY ? `${RIOT_API_KEY.substring(0, 10)}...` : 'NOT SET';
-  console.error(`[Riot API DEBUG] URL: ${url}`);
-  console.error(`[Riot API DEBUG] Key: ${keyPreview}`);
-
   const response = await fetchWithRetry(
     url,
     {
@@ -110,9 +105,6 @@ async function fetchRiotApi<T>(url: string): Promise<T> {
   );
 
   if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'No body');
-    console.error(`[Riot API] Error ${response.status}: ${response.statusText} - ${errorBody}`);
-
     if (response.status === 404) {
       throw new RiotApiError(404, 'Not found');
     }
