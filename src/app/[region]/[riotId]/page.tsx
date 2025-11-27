@@ -12,6 +12,7 @@ import { RankCard, UnrankedCard } from '@/components/rank-card';
 import { LiveGameBanner } from '@/components/live-game-banner';
 import { MatchList } from '@/components/match-list';
 import { ChampionStatsCard } from '@/components/champion-stats-card';
+import { DuoPartnersCard } from '@/components/duo-partners-card';
 import { AnalysisPanel } from '@/components/analysis-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
@@ -244,6 +245,9 @@ export default function SummonerPage({ params }: PageProps) {
 
                 {/* Champion Stats */}
                 <ChampionStatsCard puuid={data.account.puuid} />
+
+                {/* Duo Partners */}
+                <DuoPartnersCard puuid={data.account.puuid} region={region as RegionKey} />
               </div>
 
               {/* Right column - Match History */}
