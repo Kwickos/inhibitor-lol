@@ -21,13 +21,88 @@ class RiotApiError extends Error {
   }
 }
 
-async function fetchRiotApi<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      'X-Riot-Token': RIOT_API_KEY || '',
-    },
-    next: { revalidate: 60 }, // Cache for 60 seconds
+// Rate limiting queue
+const requestQueue: Array<() => void> = [];
+let activeRequests = 0;
+const MAX_CONCURRENT_REQUESTS = 5;
+const REQUEST_DELAY_MS = 50; // Delay between requests
+
+async function processQueue(): Promise<void> {
+  if (requestQueue.length === 0 || activeRequests >= MAX_CONCURRENT_REQUESTS) {
+    return;
+  }
+
+  const next = requestQueue.shift();
+  if (next) {
+    activeRequests++;
+    next();
+  }
+}
+
+async function queuedFetch(url: string, options: RequestInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const executeRequest = async () => {
+      try {
+        // Add small delay between requests
+        await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
+        const response = await fetch(url, options);
+        resolve(response);
+      } catch (error) {
+        reject(error);
+      } finally {
+        activeRequests--;
+        processQueue();
+      }
+    };
+
+    requestQueue.push(executeRequest);
+    processQueue();
   });
+}
+
+async function fetchWithRetry<T>(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+  backoff = 1000
+): Promise<Response> {
+  try {
+    const response = await queuedFetch(url, options);
+
+    if (response.status === 429) {
+      // Get retry-after header or use exponential backoff
+      const retryAfter = response.headers.get('Retry-After');
+      const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : backoff;
+
+      if (retries > 0) {
+        console.log(`Rate limited, waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        return fetchWithRetry(url, options, retries - 1, backoff * 2);
+      }
+    }
+
+    return response;
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    throw error;
+  }
+}
+
+async function fetchRiotApi<T>(url: string): Promise<T> {
+  const response = await fetchWithRetry(
+    url,
+    {
+      headers: {
+        'X-Riot-Token': RIOT_API_KEY || '',
+      },
+      next: { revalidate: 60 }, // Cache for 60 seconds
+    },
+    3,
+    1000
+  );
 
   if (!response.ok) {
     if (response.status === 404) {

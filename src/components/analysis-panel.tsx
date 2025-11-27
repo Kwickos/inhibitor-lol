@@ -93,15 +93,10 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
         <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-6">
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Crosshair className="h-5 w-5 text-primary" />
-              Performance Overview
-            </h3>
-            <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-full">
-              {analysis.analyzedGames} games
-            </span>
-          </div>
+          <h3 className="text-lg font-semibold flex items-center gap-2 mb-6">
+            <Crosshair className="h-5 w-5 text-primary" />
+            Performance Overview
+          </h3>
 
           <div className="grid grid-cols-3 gap-4">
             <StatRing
@@ -172,54 +167,53 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
         </div>
       </motion.div>
 
-      {/* Strengths & Weaknesses Grid */}
+      {/* Insights & Improvement Section */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-2 gap-6"
+        className="grid grid-cols-1 xl:grid-cols-3 gap-6"
       >
-        <InsightCard
-          title="Strengths"
-          icon={<CheckCircle2 className="h-5 w-5" />}
-          insights={analysis.strengths}
-          type="strength"
-        />
-        <InsightCard
-          title="Areas to Improve"
-          icon={<AlertTriangle className="h-5 w-5" />}
-          insights={analysis.weaknesses}
-          type="weakness"
-        />
+        {/* Strengths & Weaknesses - 2 columns on xl */}
+        <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <InsightCard
+            title="Strengths"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            insights={analysis.strengths}
+            type="strength"
+          />
+          <InsightCard
+            title="Areas to Improve"
+            icon={<AlertTriangle className="h-5 w-5" />}
+            insights={analysis.weaknesses}
+            type="weakness"
+          />
+        </div>
+
+        {/* Improvement Plan - Sidebar */}
+        {analysis.improvements.length > 0 && (
+          <div className="xl:col-span-1">
+            <ImprovementPlanCompact improvements={analysis.improvements} />
+          </div>
+        )}
       </motion.div>
 
-      {/* Improvement Plan */}
-      {analysis.improvements.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <ImprovementPlan improvements={analysis.improvements} />
-        </motion.div>
-      )}
-
-      {/* Role Performance */}
+      {/* Champions & Role Performance Section */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.2 }}
+        className="grid grid-cols-1 xl:grid-cols-3 gap-6"
       >
-        <RolePerformance roleStats={analysis.roleStats} />
-      </motion.div>
+        {/* Top Champions - Takes 2 columns */}
+        <div className="xl:col-span-2">
+          <TopChampionsGrid champions={analysis.championAnalysis.slice(0, 8)} />
+        </div>
 
-      {/* Top Champions */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <TopChampions champions={analysis.championAnalysis.slice(0, 6)} />
+        {/* Role Performance - Sidebar */}
+        <div className="xl:col-span-1">
+          <RolePerformanceCompact roleStats={analysis.roleStats} />
+        </div>
       </motion.div>
     </div>
   );
@@ -242,21 +236,20 @@ function StatRing({
   const circumference = 2 * Math.PI * 36;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
-  // Simplified: primary for good, destructive for bad
-  const gradientId = isGood ? 'gradient-good' : 'gradient-bad';
+  // Use vivid colors that work in SVG gradients - matching primary #6366F1
+  const goodColors = { start: '#818cf8', end: '#6366f1' }; // Indigo gradient (primary)
+  const badColors = { start: '#f87171', end: '#dc2626' };  // Red gradient (destructive)
+  const colors = isGood ? goodColors : badColors;
+  const uniqueId = `gradient-${label.replace(/\s+/g, '-').toLowerCase()}-${isGood ? 'good' : 'bad'}`;
 
   return (
     <div className="flex flex-col items-center">
       <div className="relative w-24 h-24">
         <svg className="w-24 h-24 -rotate-90" viewBox="0 0 80 80">
           <defs>
-            <linearGradient id="gradient-good" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" className="[stop-color:hsl(var(--primary))]" />
-              <stop offset="100%" className="[stop-color:hsl(var(--primary)/0.7)]" />
-            </linearGradient>
-            <linearGradient id="gradient-bad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" className="[stop-color:hsl(var(--destructive))]" />
-              <stop offset="100%" className="[stop-color:hsl(var(--destructive)/0.7)]" />
+            <linearGradient id={uniqueId} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={colors.start} />
+              <stop offset="100%" stopColor={colors.end} />
             </linearGradient>
           </defs>
           {/* Background circle */}
@@ -267,14 +260,14 @@ function StatRing({
             stroke="currentColor"
             strokeWidth="6"
             fill="none"
-            className="text-muted/20"
+            className="text-muted/30"
           />
           {/* Progress circle */}
           <motion.circle
             cx="40"
             cy="40"
             r="36"
-            stroke={`url(#${gradientId})`}
+            stroke={`url(#${uniqueId})`}
             strokeWidth="6"
             fill="none"
             strokeLinecap="round"
@@ -449,73 +442,73 @@ function InsightCard({
   );
 }
 
-function ImprovementPlan({ improvements }: { improvements: ImprovementSuggestion[] }) {
-  const [expanded, setExpanded] = useState<number | null>(0);
+function ImprovementPlanCompact({ improvements }: { improvements: ImprovementSuggestion[] }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-card via-card to-primary/5 p-6">
-      <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+    <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-card via-card to-primary/5 p-5 h-full">
+      <div className="absolute top-0 right-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
-      <div className="relative">
-        <div className="flex items-center gap-2 mb-5">
-          <div className="p-2 rounded-lg bg-primary/20">
-            <Target className="h-5 w-5 text-primary" />
+      <div className="relative h-full flex flex-col">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="p-1.5 rounded-lg bg-primary/20">
+            <Target className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h3 className="font-semibold">Improvement Plan</h3>
-            <p className="text-xs text-muted-foreground">Focus on these areas to improve</p>
+            <h3 className="font-semibold text-sm">Improvement Plan</h3>
+            <p className="text-[10px] text-muted-foreground">Focus areas</p>
           </div>
         </div>
 
-        <div className="space-y-3">
-          {improvements.map((improvement, idx) => (
+        <div className="space-y-2 flex-1 overflow-y-auto">
+          {improvements.slice(0, 5).map((improvement, idx) => (
             <motion.div
               key={idx}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.1 }}
               className={cn(
-                'rounded-xl border transition-all cursor-pointer',
+                'rounded-lg border transition-all cursor-pointer',
                 expanded === idx
                   ? 'bg-background/80 border-primary/50'
                   : 'bg-background/40 border-border/30 hover:border-border/50'
               )}
               onClick={() => setExpanded(expanded === idx ? null : idx)}
             >
-              <div className="p-4">
-                <div className="flex items-center gap-3">
+              <div className="p-3">
+                <div className="flex items-center gap-2">
                   <div className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm',
+                    'w-6 h-6 rounded-md flex items-center justify-center font-bold text-xs flex-shrink-0',
                     improvement.priority === 1 ? 'bg-primary/20 text-primary' :
+                    improvement.priority === 2 ? 'bg-primary/10 text-primary/70' :
                     'bg-muted/30 text-muted-foreground'
                   )}>
-                    #{improvement.priority}
+                    {improvement.priority}
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium">{improvement.title}</h4>
-                    <p className="text-xs text-muted-foreground">{improvement.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-sm truncate">{improvement.title}</h4>
                   </div>
                   <ChevronRight className={cn(
-                    'h-5 w-5 text-muted-foreground transition-transform',
+                    'h-4 w-4 text-muted-foreground transition-transform flex-shrink-0',
                     expanded === idx && 'rotate-90'
                   )} />
                 </div>
 
-                {/* Progress bar */}
-                <div className="mt-3">
-                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                    <span>Current: {improvement.currentValue.toFixed(1)}</span>
-                    <span>Target: {improvement.targetValue.toFixed(1)}</span>
-                  </div>
-                  <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+                {/* Compact progress bar */}
+                <div className="mt-2">
+                  <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden">
                     <motion.div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full bg-gradient-to-r from-primary/70 to-primary rounded-full"
                       initial={{ width: 0 }}
                       animate={{
                         width: `${Math.min(100, (improvement.currentValue / improvement.targetValue) * 100)}%`
                       }}
-                      transition={{ duration: 1, delay: 0.3 }}
+                      transition={{ duration: 0.8, delay: 0.2 }}
                     />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                    <span>{improvement.currentValue.toFixed(1)}</span>
+                    <span>{improvement.targetValue.toFixed(1)}</span>
                   </div>
                 </div>
               </div>
@@ -528,13 +521,13 @@ function ImprovementPlan({ improvements }: { improvements: ImprovementSuggestion
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-4 pb-4 pt-2 border-t border-border/30">
-                      <p className="text-xs font-medium text-muted-foreground mb-2">Tips to improve:</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {improvement.tips.map((tip, tipIdx) => (
-                          <div key={tipIdx} className="flex items-start gap-2 text-sm">
-                            <ChevronRight className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                            <span>{tip}</span>
+                    <div className="px-3 pb-3 pt-1 border-t border-border/30">
+                      <p className="text-[10px] font-medium text-muted-foreground mb-1.5">Tips:</p>
+                      <div className="space-y-1">
+                        {improvement.tips.slice(0, 3).map((tip, tipIdx) => (
+                          <div key={tipIdx} className="flex items-start gap-1.5 text-xs">
+                            <ChevronRight className="h-3 w-3 text-primary mt-0.5 flex-shrink-0" />
+                            <span className="text-muted-foreground">{tip}</span>
                           </div>
                         ))}
                       </div>
@@ -550,7 +543,7 @@ function ImprovementPlan({ improvements }: { improvements: ImprovementSuggestion
   );
 }
 
-function RolePerformance({ roleStats }: { roleStats: PlayerAnalysis['roleStats'] }) {
+function RolePerformanceCompact({ roleStats }: { roleStats: PlayerAnalysis['roleStats'] }) {
   const roles = Object.entries(roleStats).sort((a, b) => b[1].games - a[1].games);
 
   if (roles.length === 0) return null;
@@ -563,49 +556,61 @@ function RolePerformance({ roleStats }: { roleStats: PlayerAnalysis['roleStats']
     UTILITY: 'Support',
   };
 
-  // Use consistent primary color for all roles
-  const roleColor = 'text-primary';
-
   return (
-    <div className="rounded-2xl border border-border/50 bg-card p-6">
-      <h3 className="font-semibold mb-4 flex items-center gap-2">
-        <Users className="h-5 w-5 text-muted-foreground" />
-        Performance by Role
+    <div className="rounded-2xl border border-border/50 bg-card p-5 h-full">
+      <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+        <Users className="h-4 w-4 text-muted-foreground" />
+        Role Performance
       </h3>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="space-y-2">
         {roles.map(([role, stats], idx) => {
           const RoleIcon = getRoleIcon(role);
+          const isMainRole = idx === 0;
           return (
             <motion.div
               key={role}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.1 }}
-              className="relative overflow-hidden rounded-xl border border-border/30 bg-background/50 p-4"
+              className={cn(
+                'relative overflow-hidden rounded-lg border p-3 transition-all',
+                isMainRole
+                  ? 'border-primary/30 bg-primary/5'
+                  : 'border-border/30 bg-background/50'
+              )}
             >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={cn('p-1.5 rounded-lg bg-primary/10', roleColor)}>
-                    <RoleIcon className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">{roleNames[role] || role}</h4>
-                    <p className="text-xs text-muted-foreground">{stats.games} games</p>
-                  </div>
+              {isMainRole && (
+                <div className="absolute top-1.5 right-1.5">
+                  <span className="text-[8px] uppercase tracking-wider text-primary/70 font-semibold bg-primary/10 px-1.5 py-0.5 rounded">
+                    Main
+                  </span>
                 </div>
+              )}
+              <div className="flex items-center gap-3">
                 <div className={cn(
-                  'text-lg font-bold',
-                  stats.winRate >= 50 ? 'text-primary' : 'text-destructive'
+                  'p-1.5 rounded-lg',
+                  isMainRole ? 'bg-primary/20 text-primary' : 'bg-muted/30 text-muted-foreground'
                 )}>
-                  {stats.winRate.toFixed(0)}%
+                  <RoleIcon className="w-5 h-5" />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <RoleStat label="KDA" value={stats.avgKDA.toFixed(2)} rating={stats.benchmarkComparison.kda.rating} />
-                <RoleStat label="CS/m" value={stats.avgCSPerMin.toFixed(1)} rating={stats.benchmarkComparison.csPerMin.rating} />
-                <RoleStat label="KP" value={`${stats.avgKillParticipation.toFixed(0)}%`} rating={stats.benchmarkComparison.killParticipation.rating} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium text-sm">{roleNames[role] || role}</h4>
+                    <div className={cn(
+                      'text-sm font-bold ml-auto',
+                      isMainRole ? 'mr-12' : '',
+                      stats.winRate >= 50 ? 'text-primary' : 'text-destructive'
+                    )}>
+                      {stats.winRate.toFixed(0)}%
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[10px] text-muted-foreground">{stats.games}G</span>
+                    <span className="text-[10px] text-muted-foreground">{stats.avgKDA.toFixed(1)} KDA</span>
+                    <span className="text-[10px] text-muted-foreground">{stats.avgCSPerMin.toFixed(1)} CS/m</span>
+                  </div>
+                </div>
               </div>
             </motion.div>
           );
@@ -630,52 +635,116 @@ function RoleStat({ label, value, rating }: { label: string; value: string; rati
   );
 }
 
-function TopChampions({ champions }: { champions: PlayerAnalysis['championAnalysis'] }) {
+function TopChampionsGrid({ champions }: { champions: PlayerAnalysis['championAnalysis'] }) {
   if (champions.length === 0) return null;
 
+  // Separate best champion from others
+  const [bestChamp, ...otherChamps] = champions;
+
   return (
-    <div className="rounded-2xl border border-border/50 bg-card p-6">
-      <h3 className="font-semibold mb-4 flex items-center gap-2">
-        <Award className="h-5 w-5 text-muted-foreground" />
+    <div className="rounded-2xl border border-border/50 bg-card p-5 h-full">
+      <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+        <Award className="h-4 w-4 text-muted-foreground" />
         Top Champions
       </h3>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {champions.map((champ, idx) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Best Champion - Featured */}
+        {bestChamp && (
           <motion.div
-            key={champ.championName}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.05 }}
-            className="relative group"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-background to-background p-4 sm:row-span-2"
           >
-            <div className="relative overflow-hidden rounded-xl border border-border/30 bg-background/50 p-3 text-center transition-all group-hover:border-primary/50 group-hover:bg-background/80">
-              <div className="relative mx-auto w-14 h-14 mb-2">
+            <div className="absolute top-2 right-2">
+              <span className="text-[8px] uppercase tracking-wider text-primary font-semibold bg-primary/20 px-1.5 py-0.5 rounded">
+                Best
+              </span>
+            </div>
+            <div className="flex flex-col items-center text-center">
+              <div className="relative w-16 h-16 mb-3">
                 <Image
-                  src={getChampionIconUrl(champ.championName)}
-                  alt={champ.championName}
-                  width={56}
-                  height={56}
-                  className="rounded-lg"
+                  src={getChampionIconUrl(bestChamp.championName)}
+                  alt={bestChamp.championName}
+                  width={64}
+                  height={64}
+                  className="rounded-xl ring-2 ring-primary/30"
                   unoptimized
                 />
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-card border border-border flex items-center justify-center text-[10px] font-bold">
-                  {champ.games}
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold">
+                  {bestChamp.games}
                 </div>
               </div>
-              <h4 className="text-sm font-medium truncate">{champ.championName}</h4>
+              <h4 className="font-semibold">{bestChamp.championName}</h4>
               <div className={cn(
-                'text-lg font-bold',
-                champ.winRate >= 50 ? 'text-primary' : 'text-destructive'
+                'text-2xl font-bold mt-1',
+                bestChamp.winRate >= 50 ? 'text-primary' : 'text-destructive'
               )}>
-                {champ.winRate.toFixed(0)}%
+                {bestChamp.winRate.toFixed(0)}%
               </div>
-              <div className="text-xs text-muted-foreground">
-                {champ.avgKDA.toFixed(2)} KDA
+              <div className="text-sm text-muted-foreground">
+                {bestChamp.avgKDA.toFixed(2)} KDA
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3 w-full">
+                <div className="text-center">
+                  <div className="text-xs font-semibold">{bestChamp.avgKills.toFixed(1)}</div>
+                  <div className="text-[10px] text-muted-foreground">Kills</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs font-semibold">{bestChamp.avgDeaths.toFixed(1)}</div>
+                  <div className="text-[10px] text-muted-foreground">Deaths</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs font-semibold">{bestChamp.avgAssists.toFixed(1)}</div>
+                  <div className="text-[10px] text-muted-foreground">Assists</div>
+                </div>
               </div>
             </div>
           </motion.div>
-        ))}
+        )}
+
+        {/* Other Champions - Compact Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-1 lg:grid-cols-2 gap-2 content-start">
+          {otherChamps.slice(0, 6).map((champ, idx) => (
+            <motion.div
+              key={champ.championName}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.05 }}
+              className="relative group"
+            >
+              <div className="flex items-center gap-2 p-2 rounded-lg border border-border/30 bg-background/50 transition-all group-hover:border-primary/30 group-hover:bg-background/80">
+                <div className="relative w-10 h-10 flex-shrink-0">
+                  <Image
+                    src={getChampionIconUrl(champ.championName)}
+                    alt={champ.championName}
+                    width={40}
+                    height={40}
+                    className="rounded-lg"
+                    unoptimized
+                  />
+                  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-card border border-border flex items-center justify-center text-[8px] font-bold">
+                    {champ.games}
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-medium truncate">{champ.championName}</h4>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      'text-sm font-bold',
+                      champ.winRate >= 50 ? 'text-primary' : 'text-destructive'
+                    )}>
+                      {champ.winRate.toFixed(0)}%
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {champ.avgKDA.toFixed(1)} KDA
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -720,16 +789,7 @@ function QueueSelector({
 }
 
 function AnalysisLoading() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20">
-      <div className="relative">
-        <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-        <Loader2 className="absolute inset-0 m-auto h-8 w-8 text-primary animate-pulse" />
-      </div>
-      <p className="mt-4 text-muted-foreground">Analyzing performance data...</p>
-      <p className="text-sm text-muted-foreground/60">This may take a moment</p>
-    </div>
-  );
+  return null;
 }
 
 function AnalysisError({ error }: { error: string | null }) {

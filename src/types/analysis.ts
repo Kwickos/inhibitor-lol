@@ -1,5 +1,9 @@
 // Player Analysis Types
 
+// Minimum games for reliable analysis
+export const MIN_GAMES_FOR_ANALYSIS = 10;
+export const RECOMMENDED_GAMES_FOR_ANALYSIS = 50;
+
 export interface PlayerAnalysis {
   puuid: string;
   gameName: string;
@@ -7,6 +11,7 @@ export interface PlayerAnalysis {
   region: string;
   queueName: string;
   analyzedGames: number;
+  dataQuality: 'excellent' | 'good' | 'limited' | 'insufficient';
 
   // Overall stats
   overallStats: OverallStats;

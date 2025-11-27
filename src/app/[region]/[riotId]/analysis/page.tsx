@@ -131,7 +131,7 @@ export default function AnalysisPage({ params }: PageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <InsightsCard
             title="Strengths"
-            icon={<TrendingUp className="h-5 w-5 text-green-500" />}
+            icon={<TrendingUp className="h-5 w-5 text-primary" />}
             insights={analysis.strengths}
             type="strength"
           />
@@ -190,8 +190,8 @@ function Header({ region, riotId }: { region: string; riotId: string }) {
 
 function OverviewSection({ stats }: { stats: PlayerAnalysis['overallStats'] }) {
   const statCards = [
-    { label: 'Win Rate', value: `${stats.winRate.toFixed(1)}%`, color: stats.winRate >= 50 ? 'text-green-500' : 'text-red-500' },
-    { label: 'KDA', value: stats.avgKDA.toFixed(2), color: stats.avgKDA >= 3 ? 'text-green-500' : stats.avgKDA >= 2 ? 'text-foreground' : 'text-red-500' },
+    { label: 'Win Rate', value: `${stats.winRate.toFixed(1)}%`, color: stats.winRate >= 50 ? 'text-primary' : 'text-red-500' },
+    { label: 'KDA', value: stats.avgKDA.toFixed(2), color: stats.avgKDA >= 3 ? 'text-primary' : stats.avgKDA >= 2 ? 'text-foreground' : 'text-red-500' },
     { label: 'Avg K/D/A', value: `${stats.avgKills.toFixed(1)} / ${stats.avgDeaths.toFixed(1)} / ${stats.avgAssists.toFixed(1)}` },
     { label: 'CS/min', value: stats.avgCSPerMin.toFixed(1) },
     { label: 'Vision/min', value: stats.avgVisionPerMin.toFixed(2) },
@@ -251,7 +251,7 @@ function InsightsCard({
       transition={{ delay: 0.2 }}
       className={cn(
         'bg-card border rounded-xl p-6',
-        type === 'strength' ? 'border-green-500/30' : 'border-amber-500/30'
+        type === 'strength' ? 'border-primary/30' : 'border-amber-500/30'
       )}
     >
       <div className="flex items-center gap-2 mb-4">
@@ -268,12 +268,12 @@ function InsightsCard({
               key={idx}
               className={cn(
                 'flex items-start gap-3 p-3 rounded-lg',
-                type === 'strength' ? 'bg-green-500/10' : 'bg-amber-500/10'
+                type === 'strength' ? 'bg-primary/10' : 'bg-amber-500/10'
               )}
             >
               <div className={cn(
                 'mt-0.5',
-                type === 'strength' ? 'text-green-500' : 'text-amber-500'
+                type === 'strength' ? 'text-primary' : 'text-amber-500'
               )}>
                 {getCategoryIcon(insight.category)}
               </div>
@@ -363,8 +363,8 @@ function RolePerformanceSection({ roleStats }: { roleStats: PlayerAnalysis['role
 
   const getRatingColor = (rating: BenchmarkMetric['rating']) => {
     switch (rating) {
-      case 'excellent': return 'text-green-500';
-      case 'good': return 'text-emerald-400';
+      case 'excellent': return 'text-primary';
+      case 'good': return 'text-primary/80';
       case 'average': return 'text-yellow-500';
       case 'below_average': return 'text-orange-500';
       case 'poor': return 'text-red-500';
@@ -390,7 +390,7 @@ function RolePerformanceSection({ roleStats }: { roleStats: PlayerAnalysis['role
               </div>
               <div className={cn(
                 'text-2xl font-bold',
-                stats.winRate >= 50 ? 'text-green-500' : 'text-red-500'
+                stats.winRate >= 50 ? 'text-primary' : 'text-red-500'
               )}>
                 {stats.avgKDA.toFixed(2)} KDA
               </div>
@@ -464,13 +464,13 @@ function ChampionAnalysisSection({ champions }: { champions: PlayerAnalysis['cha
                 <td className="py-3 px-4 text-center">{champ.games}</td>
                 <td className={cn(
                   'py-3 px-4 text-center font-medium',
-                  champ.winRate >= 50 ? 'text-green-500' : 'text-red-500'
+                  champ.winRate >= 50 ? 'text-primary' : 'text-red-500'
                 )}>
                   {champ.winRate.toFixed(0)}%
                 </td>
                 <td className={cn(
                   'py-3 px-4 text-center font-medium',
-                  champ.avgKDA >= 3 ? 'text-green-500' : champ.avgKDA >= 2 ? 'text-foreground' : 'text-red-500'
+                  champ.avgKDA >= 3 ? 'text-primary' : champ.avgKDA >= 2 ? 'text-foreground' : 'text-red-500'
                 )}>
                   {champ.avgKDA.toFixed(2)}
                 </td>
@@ -488,7 +488,7 @@ function ChampionAnalysisSection({ champions }: { champions: PlayerAnalysis['cha
 function TrendsSection({ trends }: { trends: PlayerAnalysis['trends'] }) {
   const getTrendIcon = (trend: 'improving' | 'stable' | 'declining') => {
     switch (trend) {
-      case 'improving': return <TrendingUp className="h-4 w-4 text-green-500" />;
+      case 'improving': return <TrendingUp className="h-4 w-4 text-primary" />;
       case 'declining': return <TrendingDown className="h-4 w-4 text-red-500" />;
       default: return <Minus className="h-4 w-4 text-muted-foreground" />;
     }

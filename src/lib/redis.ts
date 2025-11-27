@@ -8,12 +8,13 @@ export const redis = new Redis({
 
 // Cache TTLs in seconds
 export const CACHE_TTL = {
-  SUMMONER: 60 * 60, // 1 hour
-  MATCH_IDS: 5 * 60, // 5 minutes
-  MATCH_DETAILS: 24 * 60 * 60, // 24 hours
-  RANKS: 10 * 60, // 10 minutes
-  MASTERIES: 60 * 60, // 1 hour
+  SUMMONER: 2 * 60 * 60, // 2 hours
+  MATCH_IDS: 10 * 60, // 10 minutes
+  MATCH_DETAILS: 7 * 24 * 60 * 60, // 7 days (matches don't change)
+  RANKS: 15 * 60, // 15 minutes
+  MASTERIES: 2 * 60 * 60, // 2 hours
   LIVE_GAME: 30, // 30 seconds
+  ANALYSIS: 15 * 60, // 15 minutes
 } as const;
 
 // Cache key generators
@@ -26,4 +27,5 @@ export const cacheKeys = {
   liveGame: (puuid: string) => `live_game:${puuid}`,
   account: (gameName: string, tagLine: string, region: string) =>
     `account:${region}:${gameName.toLowerCase()}:${tagLine.toLowerCase()}`,
+  analysis: (puuid: string, queue: string) => `analysis:${puuid}:${queue}`,
 };

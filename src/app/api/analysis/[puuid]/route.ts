@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMatchIds, getMatch, QUEUE_IDS } from '@/lib/cache';
+import { redis, cacheKeys, CACHE_TTL } from '@/lib/redis';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError } from '@/lib/riot-api';
 import type { Match, Participant, Team } from '@/types/riot';
@@ -15,6 +16,8 @@ import {
   ROLE_BENCHMARKS,
   getRating,
   getPercentile,
+  MIN_GAMES_FOR_ANALYSIS,
+  RECOMMENDED_GAMES_FOR_ANALYSIS,
 } from '@/types/analysis';
 
 interface Params {
@@ -40,6 +43,17 @@ export async function GET(request: NextRequest, { params }: Params) {
         { error: 'Invalid or missing region parameter' },
         { status: 400 }
       );
+    }
+
+    // Check cache first
+    const analysisCacheKey = cacheKeys.analysis(puuid, queueParam);
+    try {
+      const cachedAnalysis = await redis.get<PlayerAnalysis>(analysisCacheKey);
+      if (cachedAnalysis) {
+        return NextResponse.json(cachedAnalysis);
+      }
+    } catch (e) {
+      console.warn('Redis cache error:', e);
     }
 
     // Determine queue ID based on parameter
@@ -122,6 +136,13 @@ export async function GET(request: NextRequest, { params }: Params) {
       queueName
     );
 
+    // Cache the analysis result
+    try {
+      await redis.set(analysisCacheKey, analysis, { ex: CACHE_TTL.ANALYSIS });
+    } catch (e) {
+      console.warn('Redis cache write error:', e);
+    }
+
     return NextResponse.json(analysis);
   } catch (error) {
     console.error('Analysis API error:', error);
@@ -176,6 +197,19 @@ function calculateAnalysis(
   // Generate improvement suggestions
   const improvements = generateImprovements(weaknesses, roleStats, overallStats);
 
+  // Calculate data quality based on number of games
+  const gamesCount = playerMatches.length;
+  let dataQuality: PlayerAnalysis['dataQuality'];
+  if (gamesCount >= RECOMMENDED_GAMES_FOR_ANALYSIS) {
+    dataQuality = 'excellent';
+  } else if (gamesCount >= 30) {
+    dataQuality = 'good';
+  } else if (gamesCount >= MIN_GAMES_FOR_ANALYSIS) {
+    dataQuality = 'limited';
+  } else {
+    dataQuality = 'insufficient';
+  }
+
   return {
     puuid,
     gameName,
@@ -183,6 +217,7 @@ function calculateAnalysis(
     region,
     queueName,
     analyzedGames: playerMatches.length,
+    dataQuality,
     overallStats,
     roleStats,
     championAnalysis,

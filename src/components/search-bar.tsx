@@ -88,10 +88,10 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
       <form onSubmit={handleSearch}>
         <div
           className={cn(
-            'relative flex items-center gap-2 rounded-xl border border-border/50 bg-card/80 backdrop-blur-sm transition-all duration-200',
-            'hover:border-border hover:bg-card',
-            'focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20',
-            isLarge ? 'p-2' : 'p-1.5'
+            'relative flex items-center gap-2 rounded-xl transition-all duration-200',
+            isLarge
+              ? 'border border-border/50 bg-card/80 backdrop-blur-sm hover:border-border hover:bg-card focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 p-2'
+              : 'gap-1'
           )}
         >
           {/* Region Selector */}
@@ -102,13 +102,16 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
               setIsDropdownOpen(false);
             }}
             className={cn(
-              'flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              'bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground',
-              isRegionOpen && 'bg-secondary text-foreground'
+              'flex items-center gap-1 rounded-lg font-medium transition-colors',
+              isLarge
+                ? 'px-3 py-2 text-sm bg-secondary/50 hover:bg-secondary'
+                : 'px-2 py-1.5 text-xs bg-transparent hover:bg-muted/50',
+              'text-muted-foreground hover:text-foreground',
+              isRegionOpen && (isLarge ? 'bg-secondary text-foreground' : 'bg-muted/50 text-foreground')
             )}
           >
             <span className="uppercase tracking-wide">{selectedRegionData?.shortName}</span>
-            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isRegionOpen && 'rotate-180')} />
+            <ChevronDown className={cn('h-3 w-3 transition-transform', isRegionOpen && 'rotate-180')} />
           </button>
 
           {/* Search Input */}
@@ -122,11 +125,13 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
                 setIsDropdownOpen(true);
                 setIsRegionOpen(false);
               }}
-              placeholder="Search summoner... (Name#TAG)"
+              placeholder={isLarge ? "Search summoner... (Name#TAG)" : "Name#TAG"}
               autoFocus={autoFocus}
               className={cn(
-                'border-0 bg-transparent shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50',
-                isLarge ? 'h-12 text-lg' : 'h-10'
+                'shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50',
+                isLarge
+                  ? 'h-12 text-lg border-0 bg-transparent'
+                  : 'h-9 text-sm border-border/50 bg-background/50 rounded-lg'
               )}
             />
             {query && (
@@ -144,15 +149,18 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
           <Button
             type="submit"
             disabled={!query.trim() || isSearching}
-            size={isLarge ? 'lg' : 'default'}
-            className="rounded-lg gap-2 bg-primary hover:bg-primary/90 transition-all"
+            size={isLarge ? 'lg' : 'icon'}
+            className={cn(
+              'rounded-lg bg-primary hover:bg-primary/90 transition-all',
+              !isLarge && 'h-9 w-9'
+            )}
           >
             {isSearching ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Search className="h-4 w-4" />
             )}
-            <span className="hidden sm:inline">Search</span>
+            {isLarge && <span className="hidden sm:inline ml-2">Search</span>}
           </Button>
         </div>
       </form>

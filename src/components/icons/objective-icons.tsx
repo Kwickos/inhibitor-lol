@@ -1,0 +1,101 @@
+import { cn } from '@/lib/utils';
+
+interface IconProps {
+  className?: string;
+}
+
+export function TowerIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2L8 6V8H6V10H8V12H6V14H8V16H6V18H8V20H6V22H18V20H16V18H18V16H16V14H18V12H16V10H18V8H16V6L12 2ZM12 4.5L14 6.5V8H10V6.5L12 4.5ZM10 10H14V12H10V10ZM10 14H14V16H10V14ZM10 18H14V20H10V18Z" />
+    </svg>
+  );
+}
+
+export function DragonIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M6.5 2C5.67 2 5 2.67 5 3.5V5H3L5 8L3 9L5.5 10L4 12L6 11.5L5.5 14L7.5 12.5L8 15L9.5 12.5L11 14V11L13 14V11L14.5 12.5L16 15L16.5 12.5L18.5 14L18 11.5L20 12L18.5 10L21 9L19 8L21 5H19V3.5C19 2.67 18.33 2 17.5 2H6.5ZM7 4H17V5.5L15.5 7H8.5L7 5.5V4ZM8 9H16L17 11H7L8 9ZM9 13L10 15H14L15 13H9ZM10 17L11 19H13L14 17H10ZM11 21V22H13V21H11Z" />
+    </svg>
+  );
+}
+
+export function BaronIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2C11 2 10 3 10 4V6C8.5 6 7 7 7 9V10L5 9V11L7 12V14L5 15V17L7 16V17C7 19 8.5 20 10 20V22H14V20C15.5 20 17 19 17 17V16L19 17V15L17 14V12L19 11V9L17 10V9C17 7 15.5 6 14 6V4C14 3 13 2 12 2ZM12 4C12.5 4 13 4.5 13 5V6H11V5C11 4.5 11.5 4 12 4ZM9 8H15C15.5 8 16 8.5 16 9V17C16 17.5 15.5 18 15 18H9C8.5 18 8 17.5 8 17V9C8 8.5 8.5 8 9 8ZM10 10V12H11V10H10ZM13 10V12H14V10H13ZM11 14V16H13V14H11Z" />
+    </svg>
+  );
+}
+
+export function HeraldIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2L9 5L6 4L7 7L4 8L6 10L4 12L7 13L6 16L9 15L12 18L15 15L18 16L17 13L20 12L18 10L20 8L17 7L18 4L15 5L12 2ZM12 5L13.5 6.5L15.5 6L15 8L17 8.5L15.5 10L17 11.5L15 12L15.5 14L13.5 13.5L12 15L10.5 13.5L8.5 14L9 12L7 11.5L8.5 10L7 8.5L9 8L8.5 6L10.5 6.5L12 5ZM12 8C10.34 8 9 9.34 9 11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11C15 9.34 13.66 8 12 8ZM12 10C12.55 10 13 10.45 13 11C13 11.55 12.55 12 12 12C11.45 12 11 11.55 11 11C11 10.45 11.45 10 12 10ZM8 17L6 19H8V21H10V19L12 20L14 19V21H16V19H18L16 17H8Z" />
+    </svg>
+  );
+}
+
+export function InhibitorIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2L4 6V12L12 22L20 12V6L12 2ZM12 4.5L18 7.5V11.5L12 19.5L6 11.5V7.5L12 4.5ZM12 7C9.79 7 8 8.79 8 11C8 13.21 9.79 15 12 15C14.21 15 16 13.21 16 11C16 8.79 14.21 7 12 7ZM12 9C13.1 9 14 9.9 14 11C14 12.1 13.1 13 12 13C10.9 13 10 12.1 10 11C10 9.9 10.9 9 12 9Z" />
+    </svg>
+  );
+}
+
+export function KillsIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2C10.34 2 9 3.34 9 5C9 6.66 10.34 8 12 8C13.66 8 15 6.66 15 5C15 3.34 13.66 2 12 2ZM12 4C12.55 4 13 4.45 13 5C13 5.55 12.55 6 12 6C11.45 6 11 5.55 11 5C11 4.45 11.45 4 12 4ZM7 9L5 11L7 13L5 15L7 17L5 19L7 21L9 19L11 21H13L15 19L17 21L19 19L17 17L19 15L17 13L19 11L17 9L15 11L13 9H11L9 11L7 9ZM12 11L14 13L12 15L10 13L12 11Z" />
+    </svg>
+  );
+}
+
+export function GrubsIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 4C9.5 4 7.5 5.5 7 8H5C4.45 8 4 8.45 4 9V10C4 10.55 4.45 11 5 11H7V12H5C4.45 12 4 12.45 4 13V14C4 14.55 4.45 15 5 15H7C7.5 17.5 9.5 19 12 19C14.5 19 16.5 17.5 17 15H19C19.55 15 20 14.55 20 14V13C20 12.45 19.55 12 19 12H17V11H19C19.55 11 20 10.55 20 10V9C20 8.45 19.55 8 19 8H17C16.5 5.5 14.5 4 12 4ZM12 6C13.66 6 15 7.34 15 9V14C15 15.66 13.66 17 12 17C10.34 17 9 15.66 9 14V9C9 7.34 10.34 6 12 6ZM10 9C9.45 9 9 9.45 9 10C9 10.55 9.45 11 10 11C10.55 11 11 10.55 11 10C11 9.45 10.55 9 10 9ZM14 9C13.45 9 13 9.45 13 10C13 10.55 13.45 11 14 11C14.55 11 15 10.55 15 10C15 9.45 14.55 9 14 9Z" />
+    </svg>
+  );
+}
+
+export function AtakhanIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('w-4 h-4', className)}
+    >
+      <path d="M12 2L8 5L4 4L5 8L2 10L5 12L2 14L5 16L4 20L8 19L12 22L16 19L20 20L19 16L22 14L19 12L22 10L19 8L20 4L16 5L12 2ZM12 5.5L14 7L16.5 6.5L16 9L18 10.5L16 12L18 13.5L16 15L16.5 17.5L14 17L12 18.5L10 17L7.5 17.5L8 15L6 13.5L8 12L6 10.5L8 9L7.5 6.5L10 7L12 5.5ZM12 8C10.34 8 9 9.34 9 11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11C15 9.34 13.66 8 12 8ZM12 10C12.55 10 13 10.45 13 11C13 11.55 12.55 12 12 12C11.45 12 11 11.55 11 11C11 10.45 11.45 10 12 10Z" />
+    </svg>
+  );
+}

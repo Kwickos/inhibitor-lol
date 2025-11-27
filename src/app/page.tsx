@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { SearchBar } from '@/components/search-bar';
+import { Logo } from '@/components/logo';
 import { Zap, TrendingUp, Eye, Github } from 'lucide-react';
 
 export default function HomePage() {
@@ -120,22 +121,6 @@ export default function HomePage() {
   );
 }
 
-function Logo() {
-  return (
-    <a href="/" className="flex items-center gap-2 group">
-      <div className="relative">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center">
-          <span className="text-white font-bold text-lg">i</span>
-        </div>
-        <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary to-violet-500 blur opacity-50 group-hover:opacity-75 transition-opacity" />
-      </div>
-      <span className="text-xl font-bold tracking-tight">
-        inhibitor
-        <span className="text-primary">.lol</span>
-      </span>
-    </a>
-  );
-}
 
 interface FeatureCardProps {
   icon: React.ElementType;

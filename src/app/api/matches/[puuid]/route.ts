@@ -29,8 +29,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Get match IDs - fetch more if filtering
-    const fetchCount = queueIds ? Math.max(100, (count + start) * 3) : count + start;
+    // Get match IDs - fetch more if filtering (Riot API max is 100)
+    const fetchCount = Math.min(100, queueIds ? (count + start) * 2 : count + start);
     const allMatchIds = await getMatchIds(puuid, region, fetchCount);
 
     // If filtering by queue, we need to fetch matches and filter

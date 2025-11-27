@@ -17,17 +17,20 @@ import * as riotApi from './riot-api';
 async function getCachedOrFetch<T>(
   cacheKey: string,
   ttl: number,
-  fetcher: () => Promise<T>
+  fetcher: () => Promise<T>,
+  forceRefresh = false
 ): Promise<T> {
-  try {
-    // Try Redis first
-    const cached = await redis.get<T>(cacheKey);
-    if (cached) {
-      return cached;
+  if (!forceRefresh) {
+    try {
+      // Try Redis first
+      const cached = await redis.get<T>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    } catch (error) {
+      console.warn('Redis error:', error);
+      // Continue without cache
     }
-  } catch (error) {
-    console.warn('Redis error:', error);
-    // Continue without cache
   }
 
   // Fetch from source
@@ -43,13 +46,14 @@ async function getCachedOrFetch<T>(
 export async function getAccount(
   gameName: string,
   tagLine: string,
-  region: RegionKey
+  region: RegionKey,
+  forceRefresh = false
 ): Promise<RiotAccount> {
   const cacheKey = cacheKeys.account(gameName, tagLine, region);
 
   return getCachedOrFetch(cacheKey, CACHE_TTL.SUMMONER, async () => {
     return riotApi.getAccountByRiotId(gameName, tagLine, region);
-  });
+  }, forceRefresh);
 }
 
 // Summoner with caching (Redis + DB)
@@ -162,8 +166,10 @@ export async function getMatchIds(
   count: number = 20,
   queue?: number
 ): Promise<string[]> {
+  // Include count in cache key to avoid returning fewer matches than requested
   const queueSuffix = queue ? `:q${queue}` : '';
-  const cacheKey = cacheKeys.matchIds(puuid) + queueSuffix;
+  const countSuffix = `:c${count}`;
+  const cacheKey = cacheKeys.matchIds(puuid) + queueSuffix + countSuffix;
 
   return getCachedOrFetch(cacheKey, CACHE_TTL.MATCH_IDS, async () => {
     return riotApi.getMatchIds(puuid, region, { count, queue });

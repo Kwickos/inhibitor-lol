@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, AlertCircle, Loader2, History, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search-bar';
+import { Logo } from '@/components/logo';
 import { SummonerHeader } from '@/components/summoner-header';
 import { RankCard, UnrankedCard } from '@/components/rank-card';
 import { LiveGameBanner } from '@/components/live-game-banner';
@@ -283,12 +284,7 @@ function Header() {
   return (
     <header className="w-full border-b border-border/30 sticky top-0 bg-background/80 backdrop-blur-md z-50">
       <div className="container mx-auto px-4 h-16 flex items-center gap-4">
-        <Link href="/">
-          <Button variant="ghost" size="icon" className="h-9 w-9">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <Logo />
+        <Logo size="sm" />
         <div className="flex-1 max-w-md ml-auto">
           <SearchBar />
         </div>
@@ -297,21 +293,6 @@ function Header() {
   );
 }
 
-function Logo() {
-  return (
-    <Link href="/" className="flex items-center gap-2 group">
-      <div className="relative">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center">
-          <span className="text-white font-bold text-sm">i</span>
-        </div>
-      </div>
-      <span className="text-lg font-bold tracking-tight hidden sm:inline">
-        inhibitor
-        <span className="text-primary">.lol</span>
-      </span>
-    </Link>
-  );
-}
 
 function ProfileSkeleton() {
   return (
