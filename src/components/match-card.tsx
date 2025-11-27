@@ -870,10 +870,11 @@ function TeamObjectives({ team }: { team?: MatchSummary['teams'][0] }) {
     });
   }
   // Check for atakhan if available in API
-  if ((team.objectives as { atakhan?: { kills: number } }).atakhan?.kills > 0) {
+  const atakhanObjective = (team.objectives as { atakhan?: { kills: number } }).atakhan;
+  if (atakhanObjective && atakhanObjective.kills > 0) {
     objectives.push({
       icon: <AtakhanIcon className="w-3.5 h-3.5" />,
-      count: (team.objectives as { atakhan?: { kills: number } }).atakhan!.kills,
+      count: atakhanObjective.kills,
       color: 'text-emerald-400'
     });
   }
