@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { Users } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getChampionIconUrl } from '@/lib/riot-api';
+import { getProfileIconUrl } from '@/lib/riot-api';
 import { cn } from '@/lib/utils';
 import type { RegionKey } from '@/lib/constants/regions';
 
@@ -13,15 +13,11 @@ interface DuoPartner {
   puuid: string;
   gameName: string;
   tagLine: string;
+  profileIconId: number;
   gamesPlayed: number;
   wins: number;
   losses: number;
   winRate: number;
-  lastPlayedTogether: number;
-  mostPlayedChampion: {
-    championName: string;
-    games: number;
-  };
 }
 
 interface DuoPartnersCardProps {
@@ -96,19 +92,6 @@ export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
 function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index: number; isFirst: boolean }) {
   const winRateColor = partner.winRate >= 60 ? 'text-primary' : partner.winRate >= 50 ? 'text-foreground' : 'text-destructive';
 
-  // Format time since last played
-  const getTimeSince = (timestamp: number) => {
-    const now = Date.now();
-    const diff = now - timestamp;
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) return "Aujourd'hui";
-    if (days === 1) return 'Hier';
-    if (days < 7) return `${days}j`;
-    if (days < 30) return `${Math.floor(days / 7)}sem`;
-    return `${Math.floor(days / 30)}m`;
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0, x: -10 }}
@@ -121,11 +104,11 @@ function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index
           : 'hover:bg-muted/30'
       )}
     >
-      {/* Most played champion icon */}
+      {/* Profile icon */}
       <div className="relative">
         <Image
-          src={getChampionIconUrl(partner.mostPlayedChampion.championName)}
-          alt={partner.mostPlayedChampion.championName}
+          src={getProfileIconUrl(partner.profileIconId)}
+          alt={partner.gameName}
           width={40}
           height={40}
           className="rounded-xl ring-2 ring-border/50"
@@ -143,12 +126,8 @@ function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index
           {partner.gameName}
           <span className="text-muted-foreground font-normal">#{partner.tagLine}</span>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>
-            avec <span className="text-foreground">{partner.mostPlayedChampion.championName}</span>
-          </span>
-          <span className="text-muted-foreground/50">•</span>
-          <span>{getTimeSince(partner.lastPlayedTogether)}</span>
+        <div className="text-xs text-muted-foreground">
+          {partner.gamesPlayed} parties ranked ensemble
         </div>
       </div>
 

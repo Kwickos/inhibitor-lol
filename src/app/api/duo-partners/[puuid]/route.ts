@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMatchIds, getMatch } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { RiotApiError } from '@/lib/riot-api';
+import { RiotApiError, getSummonerByPuuid } from '@/lib/riot-api';
 
 interface Params {
   params: Promise<{
@@ -9,19 +9,18 @@ interface Params {
   }>;
 }
 
+// Ranked queue IDs
+const RANKED_QUEUES = [420, 440]; // Solo/Duo and Flex
+
 interface DuoPartner {
   puuid: string;
   gameName: string;
   tagLine: string;
+  profileIconId: number;
   gamesPlayed: number;
   wins: number;
   losses: number;
   winRate: number;
-  lastPlayedTogether: number;
-  mostPlayedChampion: {
-    championName: string;
-    games: number;
-  };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -40,8 +39,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Get recent match IDs (last 50 games for better duo detection)
-    const matchIds = await getMatchIds(puuid, region, 50);
+    // Get recent match IDs (last 100 games for better duo detection)
+    const matchIds = await getMatchIds(puuid, region, 100);
 
     // Track teammates
     const teammateStats = new Map<string, {
@@ -50,15 +49,16 @@ export async function GET(request: NextRequest, { params }: Params) {
       tagLine: string;
       games: number;
       wins: number;
-      lastPlayed: number;
-      champions: Map<string, number>;
     }>();
 
-    // Fetch matches and analyze teammates
+    // Fetch matches and analyze teammates (only ranked)
     await Promise.all(
       matchIds.map(async (matchId) => {
         try {
           const match = await getMatch(matchId, region);
+
+          // Only count ranked games
+          if (!RANKED_QUEUES.includes(match.info.queueId)) return;
 
           // Find player's team
           const player = match.info.participants.find(p => p.puuid === puuid);
@@ -72,7 +72,6 @@ export async function GET(request: NextRequest, { params }: Params) {
           );
 
           const isWin = player.win;
-          const gameTime = match.info.gameCreation;
 
           for (const teammate of teammates) {
             const existing = teammateStats.get(teammate.puuid);
@@ -80,27 +79,16 @@ export async function GET(request: NextRequest, { params }: Params) {
             if (existing) {
               existing.games++;
               if (isWin) existing.wins++;
-              if (gameTime > existing.lastPlayed) {
-                existing.lastPlayed = gameTime;
-                // Update name in case it changed
-                existing.gameName = teammate.riotIdGameName;
-                existing.tagLine = teammate.riotIdTagline;
-              }
-              // Track champion
-              const champCount = existing.champions.get(teammate.championName) || 0;
-              existing.champions.set(teammate.championName, champCount + 1);
+              // Update name in case it changed
+              existing.gameName = teammate.riotIdGameName;
+              existing.tagLine = teammate.riotIdTagline;
             } else {
-              const champions = new Map<string, number>();
-              champions.set(teammate.championName, 1);
-
               teammateStats.set(teammate.puuid, {
                 puuid: teammate.puuid,
                 gameName: teammate.riotIdGameName,
                 tagLine: teammate.riotIdTagline,
                 games: 1,
                 wins: isWin ? 1 : 0,
-                lastPlayed: gameTime,
-                champions,
               });
             }
           }
@@ -110,36 +98,38 @@ export async function GET(request: NextRequest, { params }: Params) {
       })
     );
 
-    // Filter and format duo partners (only those with minGames or more games together)
-    const duoPartners: DuoPartner[] = Array.from(teammateStats.values())
+    // Filter teammates with minGames or more games together
+    const frequentTeammates = Array.from(teammateStats.values())
       .filter(teammate => teammate.games >= minGames)
-      .map(teammate => {
-        // Find most played champion
-        let mostPlayedChamp = { championName: 'Unknown', games: 0 };
-        teammate.champions.forEach((games, championName) => {
-          if (games > mostPlayedChamp.games) {
-            mostPlayedChamp = { championName, games };
-          }
-        });
+      .sort((a, b) => b.games - a.games)
+      .slice(0, 5);
+
+    // Fetch profile icons for frequent teammates
+    const duoPartners: DuoPartner[] = await Promise.all(
+      frequentTeammates.map(async (teammate) => {
+        let profileIconId = 1; // Default icon
+        try {
+          const summoner = await getSummonerByPuuid(teammate.puuid, region);
+          profileIconId = summoner.profileIconId;
+        } catch {
+          // Use default icon if fetch fails
+        }
 
         return {
           puuid: teammate.puuid,
           gameName: teammate.gameName,
           tagLine: teammate.tagLine,
+          profileIconId,
           gamesPlayed: teammate.games,
           wins: teammate.wins,
           losses: teammate.games - teammate.wins,
           winRate: (teammate.wins / teammate.games) * 100,
-          lastPlayedTogether: teammate.lastPlayed,
-          mostPlayedChampion: mostPlayedChamp,
         };
       })
-      .sort((a, b) => b.gamesPlayed - a.gamesPlayed)
-      .slice(0, 5); // Top 5 duo partners
+    );
 
     return NextResponse.json({
       partners: duoPartners,
-      totalGamesAnalyzed: matchIds.length,
     });
   } catch (error) {
     console.error('Duo partners API error:', error);
