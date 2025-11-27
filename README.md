@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Inhibitor.lol
 
-## Getting Started
+Application de suivi de statistiques pour League of Legends construite avec Next.js 16.
 
-First, run the development server:
+## Fonctionnalités
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Recherche de joueur** - Recherchez n'importe quel joueur par Riot ID sur toutes les régions
+- **Profil** - Statistiques ranked, taux de victoire et informations de tier
+- **Historique des matchs** - Cartes détaillées avec icônes de champions, KDA et statistiques
+- **Analyse de performance** - Analyse approfondie avec :
+  - Métriques de performance (Win Rate, KDA, Kill Participation)
+  - Visualisation des tendances récentes
+  - Identification des forces et faiblesses
+  - Suggestions d'amélioration personnalisées
+  - Performance par rôle
+  - Statistiques des champions les plus joués
+- **Filtrage par queue** - Filtrer l'analyse par Solo/Duo ou Flex
+- **Détection de partie en cours** - Voir quand un joueur est en game
+
+## Stack technique
+
+- **Framework**: Next.js 16 (App Router)
+- **Styling**: Tailwind CSS
+- **Composants UI**: shadcn/ui
+- **Animations**: Framer Motion
+- **Base de données**: PostgreSQL avec Drizzle ORM
+- **Cache**: Redis
+- **API**: Riot Games API
+
+## Installation
+
+### Prérequis
+
+- Node.js 18+
+- Base de données PostgreSQL
+- Instance Redis
+- Clé API Riot Games
+
+### Variables d'environnement
+
+Créez un fichier `.env` avec les variables suivantes :
+
+```env
+RIOT_API_KEY=votre_clé_api_riot
+DATABASE_URL=votre_connection_string_postgresql
+REDIS_URL=votre_connection_string_redis
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Lancement
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Installer les dépendances
+npm install
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Appliquer le schéma de base de données
+npx drizzle-kit push
 
-## Learn More
+# Lancer le serveur de développement
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Ouvrez [http://localhost:3000](http://localhost:3000) pour voir l'application.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Structure du projet
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+├── app/
+│   ├── [region]/[riotId]/     # Pages de profil joueur
+│   └── api/                    # Routes API
+├── components/
+│   ├── ui/                     # Composants shadcn/ui
+│   ├── icons/                  # Icônes du jeu (rôles)
+│   └── ...                     # Composants fonctionnels
+├── lib/
+│   ├── riot-api.ts            # Client API Riot
+│   ├── cache.ts               # Utilitaires de cache
+│   └── constants/             # Config régions, queues
+├── types/                      # Types TypeScript
+└── db/                         # Schéma base de données
+```
 
-## Deploy on Vercel
+## Licence
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
