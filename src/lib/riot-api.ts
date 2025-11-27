@@ -92,10 +92,10 @@ async function fetchWithRetry<T>(
 }
 
 async function fetchRiotApi<T>(url: string): Promise<T> {
-  // Debug logging
+  // Debug logging (using error level to ensure visibility in Vercel)
   const keyPreview = RIOT_API_KEY ? `${RIOT_API_KEY.substring(0, 10)}...` : 'NOT SET';
-  console.log(`[Riot API] Fetching: ${url}`);
-  console.log(`[Riot API] Key: ${keyPreview}`);
+  console.error(`[Riot API DEBUG] URL: ${url}`);
+  console.error(`[Riot API DEBUG] Key: ${keyPreview}`);
 
   const response = await fetchWithRetry(
     url,
