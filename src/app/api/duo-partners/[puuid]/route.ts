@@ -39,8 +39,18 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Get recent match IDs (last 100 games for better duo detection)
-    const matchIds = await getMatchIds(puuid, region, 100);
+    // Get recent match IDs (last 50 games for duo detection)
+    let matchIds: string[] = [];
+    try {
+      matchIds = await getMatchIds(puuid, region, 50);
+    } catch (error) {
+      console.warn('Failed to fetch match IDs for duo partners:', error);
+      return NextResponse.json({ partners: [] });
+    }
+
+    if (matchIds.length === 0) {
+      return NextResponse.json({ partners: [] });
+    }
 
     // Track teammates
     const teammateStats = new Map<string, {
