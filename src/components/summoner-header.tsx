@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Star, RefreshCw, Copy, Check } from 'lucide-react';
+import { Star, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,6 @@ interface SummonerHeaderProps {
   region: string;
   profileIconId: number;
   summonerLevel: number;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
 }
 
 export function SummonerHeader({
@@ -28,8 +26,6 @@ export function SummonerHeader({
   region,
   profileIconId,
   summonerLevel,
-  onRefresh,
-  isRefreshing = false,
 }: SummonerHeaderProps) {
   const { isFavorite, toggleFavorite } = useFavorites();
   const [copied, setCopied] = useState(false);
@@ -125,23 +121,6 @@ export function SummonerHeader({
         <div className="flex items-center gap-4 mt-2 text-muted-foreground">
           <span className="uppercase text-sm font-medium tracking-wider">{region}</span>
         </div>
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex items-center gap-2">
-        {/* Refresh button */}
-        {onRefresh && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="gap-2"
-          >
-            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-            Update
-          </Button>
-        )}
       </div>
     </motion.div>
   );

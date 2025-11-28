@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getProfileIconUrl } from '@/lib/riot-api';
 import { cn } from '@/lib/utils';
@@ -22,9 +23,10 @@ interface DuoPartner {
 interface DuoPartnersCardProps {
   puuid: string;
   region: RegionKey;
+  regionSlug: string; // For URL routing (e.g., "euw", "na")
 }
 
-export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
+export function DuoPartnersCard({ puuid, region, regionSlug }: DuoPartnersCardProps) {
   const [partners, setPartners] = useState<DuoPartner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -73,7 +75,7 @@ export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
           {/* Partner List */}
           <div className="space-y-2">
             {partners.map((partner, index) => (
-              <DuoPartnerRow key={partner.puuid} partner={partner} index={index} />
+              <DuoPartnerRow key={partner.puuid} partner={partner} index={index} regionSlug={regionSlug} />
             ))}
           </div>
         </div>
@@ -82,64 +84,69 @@ export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
   );
 }
 
-function DuoPartnerRow({ partner, index }: { partner: DuoPartner; index: number }) {
+function DuoPartnerRow({ partner, index, regionSlug }: { partner: DuoPartner; index: number; regionSlug: string }) {
   const winRateColor = partner.winRate >= 60 ? 'text-primary' : partner.winRate >= 50 ? 'text-foreground' : 'text-destructive';
 
+  // Build the profile URL: /region/gameName-tagLine
+  const profileUrl = `/${regionSlug}/${encodeURIComponent(partner.gameName)}-${encodeURIComponent(partner.tagLine)}`;
+
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.2, delay: index * 0.05 }}
-      className="relative flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted/30"
-    >
-      {/* Profile icon */}
-      <div className="relative">
-        <Image
-          src={getProfileIconUrl(partner.profileIconId)}
-          alt={partner.gameName}
-          width={40}
-          height={40}
-          className="rounded-xl ring-2 ring-border/50"
-          unoptimized
-        />
-        {/* Games badge */}
-        <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-md bg-card border border-border text-[10px] font-bold">
-          {partner.gamesPlayed}
-        </div>
-      </div>
-
-      {/* Partner info */}
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold truncate text-sm">
-          {partner.gameName}
-          <span className="text-muted-foreground font-normal">#{partner.tagLine}</span>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {partner.gamesPlayed} ranked games together
-        </div>
-      </div>
-
-      {/* Win rate with visual bar */}
-      <div className="flex flex-col items-end gap-1">
-        <div className={cn('text-sm font-bold', winRateColor)}>
-          {partner.winRate.toFixed(0)}%
-        </div>
-        <div className="w-12 h-1.5 bg-muted/30 rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${partner.winRate}%` }}
-            transition={{ duration: 0.5, delay: index * 0.1 }}
-            className={cn(
-              'h-full rounded-full',
-              partner.winRate >= 60 ? 'bg-primary' : partner.winRate >= 50 ? 'bg-foreground/50' : 'bg-destructive'
-            )}
+    <Link href={profileUrl}>
+      <motion.div
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.2, delay: index * 0.05 }}
+        className="relative flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted/30 cursor-pointer group"
+      >
+        {/* Profile icon */}
+        <div className="relative">
+          <Image
+            src={getProfileIconUrl(partner.profileIconId)}
+            alt={partner.gameName}
+            width={40}
+            height={40}
+            className="rounded-xl ring-2 ring-border/50 group-hover:ring-primary/50 transition-all"
+            unoptimized
           />
+          {/* Games badge */}
+          <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-md bg-card border border-border text-[10px] font-bold">
+            {partner.gamesPlayed}
+          </div>
         </div>
-        <div className="text-[10px] text-muted-foreground">
-          {partner.wins}W {partner.losses}L
+
+        {/* Partner info */}
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold truncate text-sm group-hover:text-primary transition-colors">
+            {partner.gameName}
+            <span className="text-muted-foreground font-normal">#{partner.tagLine}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {partner.gamesPlayed} ranked games together
+          </div>
         </div>
-      </div>
-    </motion.div>
+
+        {/* Win rate with visual bar */}
+        <div className="flex flex-col items-end gap-1">
+          <div className={cn('text-sm font-bold', winRateColor)}>
+            {partner.winRate.toFixed(0)}%
+          </div>
+          <div className="w-12 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${partner.winRate}%` }}
+              transition={{ duration: 0.5, delay: index * 0.1 }}
+              className={cn(
+                'h-full rounded-full',
+                partner.winRate >= 60 ? 'bg-primary' : partner.winRate >= 50 ? 'bg-foreground/50' : 'bg-destructive'
+              )}
+            />
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            {partner.wins}W {partner.losses}L
+          </div>
+        </div>
+      </motion.div>
+    </Link>
   );
 }
 

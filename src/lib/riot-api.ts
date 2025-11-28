@@ -279,7 +279,7 @@ export function getSummonerSpellIconUrl(spellId: number): string {
 }
 
 export function getRankedEmblemUrl(tier: string): string {
-  return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/${tier.toLowerCase()}.png`;
+  return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/${tier.toLowerCase()}.svg`;
 }
 
 export function getRoleIconUrl(role: string): string {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMatchIds, getMatch, storePlayerMatch } from '@/lib/cache';
+import { getMatchIds, getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchCount } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError } from '@/lib/riot-api';
 import type { MatchSummary, Match } from '@/types/riot';
@@ -78,11 +78,39 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Get match IDs - fetch more if filtering (Riot API max is 100)
-    const fetchCount = Math.min(100, queueIds ? (count + start) * 2 : count + start);
-    const allMatchIds = await getMatchIds(puuid, region, fetchCount);
+    // Strategy: Combine DB stored matches with fresh API data
+    // 1. Get recent match IDs from Riot API (max 100)
+    // 2. Get stored match IDs from DB (can be unlimited)
+    // 3. Merge and deduplicate, keeping chronological order
 
-    // If filtering by queue, we need to fetch matches and filter
+    // Get match IDs from Riot API (recent games)
+    const fetchCount = Math.min(100, queueIds ? (count + start) * 2 : count + start);
+    const apiMatchIds = await getMatchIds(puuid, region, fetchCount);
+
+    // Get stored match IDs from DB (historical games)
+    const storedMatchIds = await getStoredMatchIds(puuid, 500, queueIds || undefined);
+
+    // Merge and deduplicate - API matches first (most recent), then stored
+    const seenIds = new Set<string>();
+    const allMatchIds: string[] = [];
+
+    // Add API matches first
+    for (const id of apiMatchIds) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        allMatchIds.push(id);
+      }
+    }
+
+    // Add stored matches that aren't in API results
+    for (const id of storedMatchIds) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        allMatchIds.push(id);
+      }
+    }
+
+    // If filtering by queue, we need to fetch matches and filter (for API matches not yet filtered)
     let matchIds = allMatchIds;
     if (queueIds && queueIds.length > 0) {
       // Fetch all match details to filter by queue
@@ -90,18 +118,19 @@ export async function GET(request: NextRequest, { params }: Params) {
         allMatchIds.map(async (matchId) => {
           try {
             const match = await getMatch(matchId, region);
-            return { matchId, queueId: match.info.queueId };
+            return { matchId, queueId: match.info.queueId, gameCreation: match.info.gameCreation };
           } catch {
             return null;
           }
         })
       );
 
-      // Filter by queue IDs
+      // Filter by queue IDs and sort by creation time
       matchIds = matchDetails
-        .filter((m): m is { matchId: string; queueId: number } =>
+        .filter((m): m is { matchId: string; queueId: number; gameCreation: number } =>
           m !== null && queueIds.includes(m.queueId)
         )
+        .sort((a, b) => b.gameCreation - a.gameCreation)
         .map(m => m.matchId);
     }
 

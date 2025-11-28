@@ -296,34 +296,98 @@ export async function getLiveGame(
   return liveGame;
 }
 
-// Store player match data (for champion stats)
+// Store player match data for ALL participants (so we don't need to refetch for other profiles)
 export async function storePlayerMatch(
   puuid: string,
   match: Match
 ): Promise<void> {
-  const participant = match.info.participants.find(p => p.puuid === puuid);
-  if (!participant) return;
-
   try {
-    await db
-      .insert(playerMatches)
-      .values({
-        puuid,
-        matchId: match.metadata.matchId,
-        win: participant.win,
-        championId: participant.championId,
-        championName: participant.championName,
-        kills: participant.kills,
-        deaths: participant.deaths,
-        assists: participant.assists,
-        cs: participant.totalMinionsKilled + participant.neutralMinionsKilled,
-        visionScore: participant.visionScore,
-        teamPosition: participant.teamPosition,
-        createdAt: new Date(match.info.gameCreation),
-      })
-      .onConflictDoNothing();
+    const gameCreation = new Date(match.info.gameCreation);
+
+    // Store data for ALL 10 participants, not just the requested player
+    // This way, when we visit another player's profile, we already have their match data
+    const values = match.info.participants.map(participant => ({
+      puuid: participant.puuid,
+      matchId: match.metadata.matchId,
+      win: participant.win,
+      championId: participant.championId,
+      championName: participant.championName,
+      kills: participant.kills,
+      deaths: participant.deaths,
+      assists: participant.assists,
+      cs: participant.totalMinionsKilled + participant.neutralMinionsKilled,
+      visionScore: participant.visionScore,
+      teamPosition: participant.teamPosition,
+      createdAt: gameCreation,
+    }));
+
+    // Insert all participants (ignore conflicts for existing entries)
+    for (const value of values) {
+      await db
+        .insert(playerMatches)
+        .values(value)
+        .onConflictDoNothing();
+    }
   } catch (e) {
-    console.warn('DB error storing player match:', e);
+    console.warn('DB error storing player matches:', e);
+  }
+}
+
+// Get stored match IDs for a player from DB (for historical data beyond API limit)
+export async function getStoredMatchIds(
+  puuid: string,
+  limit: number = 100,
+  queueIds?: number[]
+): Promise<string[]> {
+  try {
+    // Get match IDs from playerMatches table, ordered by creation date
+    const results = await db
+      .select({
+        matchId: playerMatches.matchId,
+        createdAt: playerMatches.createdAt,
+      })
+      .from(playerMatches)
+      .where(eq(playerMatches.puuid, puuid))
+      .orderBy(desc(playerMatches.createdAt))
+      .limit(limit * 2); // Get more to filter by queue
+
+    if (queueIds && queueIds.length > 0) {
+      // Filter by queue IDs - need to check the matches table
+      const matchIdsToCheck = results.map(r => r.matchId);
+      const matchesWithQueues = await db
+        .select({ matchId: matches.matchId, queueId: matches.queueId })
+        .from(matches)
+        .where(sql`${matches.matchId} IN (${sql.join(matchIdsToCheck.map(id => sql`${id}`), sql`, `)})`);
+
+      const queueMap = new Map(matchesWithQueues.map(m => [m.matchId, m.queueId]));
+
+      return results
+        .filter(r => {
+          const queueId = queueMap.get(r.matchId);
+          return queueId && queueIds.includes(queueId);
+        })
+        .slice(0, limit)
+        .map(r => r.matchId);
+    }
+
+    return results.slice(0, limit).map(r => r.matchId);
+  } catch (e) {
+    console.warn('DB error reading stored match IDs:', e);
+    return [];
+  }
+}
+
+// Get total match count for a player from DB
+export async function getStoredMatchCount(puuid: string): Promise<number> {
+  try {
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(playerMatches)
+      .where(eq(playerMatches.puuid, puuid));
+    return result[0]?.count || 0;
+  } catch (e) {
+    console.warn('DB error counting stored matches:', e);
+    return 0;
   }
 }
 

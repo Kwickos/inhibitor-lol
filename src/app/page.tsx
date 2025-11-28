@@ -3,7 +3,8 @@
 import { motion } from 'framer-motion';
 import { SearchBar } from '@/components/search-bar';
 import { Logo } from '@/components/logo';
-import { Zap, TrendingUp, Eye, Github } from 'lucide-react';
+import { Zap, TrendingUp, Eye } from 'lucide-react';
+import { SiDiscord } from '@icons-pack/react-simple-icons';
 
 export default function HomePage() {
   return (
@@ -14,12 +15,12 @@ export default function HomePage() {
           <Logo />
           <nav className="flex items-center gap-4">
             <a
-              href="https://github.com"
+              href="https://discord.gg/6cyze7Dgu8"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              className="p-2 text-muted-foreground hover:text-[#5865F2] transition-colors"
             >
-              <Github className="h-5 w-5" />
+              <SiDiscord className="h-5 w-5" />
             </a>
           </nav>
         </div>

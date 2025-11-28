@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/match-card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +16,55 @@ interface MatchListProps {
   initialMatches?: MatchSummary[];
 }
 
+// Cache duration: 1 hour in milliseconds
+const CACHE_DURATION = 60 * 60 * 1000;
+
+interface CachedMatchData {
+  matches: MatchSummary[];
+  timestamp: number;
+}
+
+// Get cached data from localStorage (always cache ALL matches, filter client-side)
+function getCachedMatches(puuid: string): CachedMatchData | null {
+  try {
+    const key = `matches_${puuid}_all`;
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+
+    const data: CachedMatchData = JSON.parse(cached);
+
+    // Validate data structure
+    if (!data || !Array.isArray(data.matches) || typeof data.timestamp !== 'number') {
+      localStorage.removeItem(key); // Clear invalid cache
+      return null;
+    }
+
+    const age = Date.now() - data.timestamp;
+
+    // Return cache if less than 1 hour old
+    if (age < CACHE_DURATION) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Save data to localStorage cache
+function setCachedMatches(puuid: string, matches: MatchSummary[]): void {
+  try {
+    const key = `matches_${puuid}_all`;
+    const data: CachedMatchData = {
+      matches,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // localStorage might be full or unavailable
+  }
+}
+
 interface GroupedMatches {
   date: string;
   label: string;
@@ -24,8 +73,9 @@ interface GroupedMatches {
   losses: number;
 }
 
-const TOTAL_GAMES = 50;
+const INITIAL_GAMES = 50;
 const GAMES_PER_PAGE = 15;
+const LOAD_MORE_COUNT = 50;
 
 // Helper to format date
 function formatDateLabel(date: Date): string {
@@ -59,6 +109,8 @@ function formatDateLabel(date: Date): string {
 
 // Group matches by day
 function groupMatchesByDay(matches: MatchSummary[]): GroupedMatches[] {
+  if (!matches || !Array.isArray(matches)) return [];
+
   const groups: Map<string, GroupedMatches> = new Map();
 
   matches.forEach(match => {
@@ -90,57 +142,119 @@ function groupMatchesByDay(matches: MatchSummary[]): GroupedMatches[] {
 }
 
 export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps) {
+  // All matches (unfiltered) - this is our source of truth
   const [allMatches, setAllMatches] = useState<MatchSummary[]>(initialMatches);
   const [isLoading, setIsLoading] = useState(initialMatches.length === 0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<QueueFilterId>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const hasFetched = useRef(false);
 
-  // Build API URL with queue filter
-  const buildApiUrl = useCallback(() => {
+  // Build API URL (always fetch ALL matches, no queue filter)
+  const buildApiUrl = useCallback((start: number = 0, count: number = INITIAL_GAMES) => {
+    return `/api/matches/${puuid}?region=${region}&count=${count}&start=${start}`;
+  }, [puuid, region]);
+
+  // Filter matches client-side based on active filter
+  const filteredMatches = useMemo(() => {
     const filter = QUEUE_FILTERS.find(f => f.id === activeFilter);
-    let url = `/api/matches/${puuid}?region=${region}&count=${TOTAL_GAMES}&start=0`;
-    if (filter?.queueIds) {
-      url += `&queue=${filter.queueIds.join(',')}`;
-    }
-    return url;
-  }, [puuid, region, activeFilter]);
+    if (!filter?.queueIds) return allMatches; // 'all' filter
+    const queueIds = filter.queueIds as readonly number[];
+    return allMatches.filter(match => queueIds.includes(match.queueId));
+  }, [allMatches, activeFilter]);
 
-  // Fetch all matches when filter changes
-  useEffect(() => {
-    async function fetchMatches() {
-      setIsLoading(true);
-      setError(null);
-      setCurrentPage(1);
-      try {
-        const res = await fetch(buildApiUrl());
-        if (!res.ok) throw new Error('Failed to fetch matches');
-
-        const data = await res.json();
-        setAllMatches(data.matches);
-      } catch (err) {
-        setError('Failed to load match history');
-        console.error(err);
-      } finally {
+  // Fetch matches (either from cache or API)
+  const fetchMatches = useCallback(async (forceRefresh = false) => {
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cached = getCachedMatches(puuid);
+      if (cached) {
+        setAllMatches(cached.matches);
+        setLastUpdated(new Date(cached.timestamp));
+        setHasMore(cached.matches.length >= INITIAL_GAMES);
         setIsLoading(false);
+        return;
       }
     }
 
-    fetchMatches();
-  }, [buildApiUrl]);
+    setIsLoading(!forceRefresh);
+    if (forceRefresh) setIsRefreshing(true);
+    setError(null);
+    setHasMore(true);
 
+    try {
+      const res = await fetch(buildApiUrl(0, INITIAL_GAMES));
+      if (!res.ok) throw new Error('Failed to fetch matches');
+
+      const data = await res.json();
+      setAllMatches(data.matches);
+      setHasMore(data.hasMore);
+      setLastUpdated(new Date());
+
+      // Save to cache (all matches)
+      setCachedMatches(puuid, data.matches);
+    } catch (err) {
+      setError('Failed to load match history');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [puuid, buildApiUrl]);
+
+  // Initial fetch - only once
+  useEffect(() => {
+    if (!hasFetched.current) {
+      hasFetched.current = true;
+      fetchMatches(false);
+    }
+  }, [fetchMatches]);
+
+  // Manual refresh
+  const handleRefresh = () => {
+    fetchMatches(true);
+  };
+
+  // Load more matches
+  const loadMoreMatches = async () => {
+    if (isLoadingMore || !hasMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const res = await fetch(buildApiUrl(allMatches.length, LOAD_MORE_COUNT));
+      if (!res.ok) throw new Error('Failed to fetch more matches');
+
+      const data = await res.json();
+      if (data.matches.length > 0) {
+        const newMatches = [...allMatches, ...data.matches];
+        setAllMatches(newMatches);
+        // Update cache with new matches
+        setCachedMatches(puuid, newMatches);
+      }
+      setHasMore(data.hasMore);
+    } catch (err) {
+      console.error('Failed to load more matches:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  // Handle filter change - just reset page, no refetch needed!
   const handleFilterChange = (filterId: QueueFilterId) => {
     if (filterId === activeFilter) return;
     setActiveFilter(filterId);
-    setAllMatches([]);
-    setCurrentPage(1);
+    setCurrentPage(1); // Reset to first page when filter changes
   };
 
-  // Pagination logic
-  const totalPages = Math.ceil(allMatches.length / GAMES_PER_PAGE);
+  // Pagination logic - use filtered matches
+  const totalPages = Math.ceil(filteredMatches.length / GAMES_PER_PAGE);
   const startIndex = (currentPage - 1) * GAMES_PER_PAGE;
   const endIndex = startIndex + GAMES_PER_PAGE;
-  const currentMatches = allMatches.slice(startIndex, endIndex);
+  const currentMatches = filteredMatches.slice(startIndex, endIndex);
 
   // Group current page matches by day
   const groupedMatches = useMemo(() =>
@@ -155,6 +269,17 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
     }
   };
 
+  // Format time ago
+  const getTimeAgo = (date: Date | null): string => {
+    if (!date) return '';
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
+
   return (
     <div className="space-y-4">
       {/* Header with filters */}
@@ -163,7 +288,25 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
         animate={{ opacity: 1 }}
         className="space-y-3"
       >
-        <h2 className="text-lg font-semibold">Match History</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Match History</h2>
+          <div className="flex items-center gap-2">
+            {lastUpdated && (
+              <span className="text-xs text-muted-foreground">
+                Updated {getTimeAgo(lastUpdated)}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="h-8 px-2"
+            >
+              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+            </Button>
+          </div>
+        </div>
 
         {/* Queue Filters */}
         <div className="flex flex-wrap gap-2">
@@ -196,14 +339,14 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       )}
 
       {/* Empty state */}
-      {!isLoading && !error && allMatches.length === 0 && (
+      {!isLoading && !error && filteredMatches.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
-          <p>No matches found for this filter</p>
+          <p>{allMatches.length === 0 ? 'No matches found' : 'No matches found for this filter'}</p>
         </div>
       )}
 
       {/* Match list grouped by day */}
-      {!isLoading && !error && allMatches.length > 0 && (
+      {!isLoading && !error && filteredMatches.length > 0 && (
         <>
           <div className="space-y-6">
             {groupedMatches.map((group, groupIndex) => (
@@ -302,6 +445,30 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
+            </div>
+          )}
+
+          {/* Load More button */}
+          {hasMore && (
+            <div className="flex flex-col items-center gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={loadMoreMatches}
+                disabled={isLoadingMore}
+                className="w-full max-w-xs"
+              >
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  `Load More Games (${allMatches.length} loaded)`
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Games are stored locally for faster access
+              </p>
             </div>
           )}
         </>

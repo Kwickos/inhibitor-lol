@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ArrowLeft, AlertCircle, Loader2, History, BarChart3, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search-bar';
@@ -86,7 +86,6 @@ export default function SummonerPage({ params }: PageProps) {
 
   const [data, setData] = useState<SummonerData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'livegame'>('overview');
 
@@ -137,22 +136,6 @@ export default function SummonerPage({ params }: PageProps) {
     fetchData();
   }, [region, gameName, tagLine, isValidRegion, addToHistory]);
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      const riotIdParam = `${gameName}-${tagLine}`;
-      const res = await fetch(`/api/summoner/${region}/${encodeURIComponent(riotIdParam)}`);
-      if (res.ok) {
-        const summonerData = await res.json();
-        setData(summonerData);
-      }
-    } catch (err) {
-      console.error('Refresh failed:', err);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   // Loading state
   if (isLoading) {
     return (
@@ -193,8 +176,6 @@ export default function SummonerPage({ params }: PageProps) {
           region={region}
           profileIconId={data.summoner.profileIconId}
           summonerLevel={data.summoner.summonerLevel}
-          onRefresh={handleRefresh}
-          isRefreshing={isRefreshing}
         />
 
         {/* Tab Navigation */}
@@ -225,28 +206,30 @@ export default function SummonerPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Tab Content */}
-        <AnimatePresence mode="wait">
-          {activeTab === 'livegame' && data.liveGame ? (
+        {/* Tab Content - All tabs stay mounted to preserve state */}
+        <div className="relative">
+          {/* Live Game Tab */}
+          {data.liveGame && (
+            <div className={cn(activeTab === 'livegame' ? 'block' : 'hidden')}>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: activeTab === 'livegame' ? 1 : 0, y: activeTab === 'livegame' ? 0 : 10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <LiveGamePanel
+                  currentPuuid={data.account.puuid}
+                  region={region}
+                  gameData={data.liveGame}
+                />
+              </motion.div>
+            </div>
+          )}
+
+          {/* Overview Tab */}
+          <div className={cn(activeTab === 'overview' ? 'block' : 'hidden')}>
             <motion.div
-              key="livegame"
               initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <LiveGamePanel
-                currentPuuid={data.account.puuid}
-                region={region}
-                gameData={data.liveGame}
-              />
-            </motion.div>
-          ) : activeTab === 'overview' ? (
-            <motion.div
-              key="overview"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              animate={{ opacity: activeTab === 'overview' ? 1 : 0, y: activeTab === 'overview' ? 0 : 10 }}
               transition={{ duration: 0.2 }}
               className="grid grid-cols-1 lg:grid-cols-3 gap-8"
             >
@@ -270,7 +253,7 @@ export default function SummonerPage({ params }: PageProps) {
                 <ChampionStatsCard puuid={data.account.puuid} />
 
                 {/* Duo Partners */}
-                <DuoPartnersCard puuid={data.account.puuid} region={region as RegionKey} />
+                <DuoPartnersCard puuid={data.account.puuid} region={region as RegionKey} regionSlug={region} />
               </div>
 
               {/* Right column - Match History */}
@@ -278,12 +261,13 @@ export default function SummonerPage({ params }: PageProps) {
                 <MatchList puuid={data.account.puuid} region={region} />
               </div>
             </motion.div>
-          ) : (
+          </div>
+
+          {/* Analysis Tab */}
+          <div className={cn(activeTab === 'analysis' ? 'block' : 'hidden')}>
             <motion.div
-              key="analysis"
               initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              animate={{ opacity: activeTab === 'analysis' ? 1 : 0, y: activeTab === 'analysis' ? 0 : 10 }}
               transition={{ duration: 0.2 }}
             >
               <AnalysisPanel
@@ -293,8 +277,8 @@ export default function SummonerPage({ params }: PageProps) {
                 tagLine={data.account.tagLine}
               />
             </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+        </div>
       </div>
 
       {/* Footer */}
