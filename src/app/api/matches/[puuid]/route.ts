@@ -5,64 +5,25 @@ import { RiotApiError } from '@/lib/riot-api';
 import type { MatchSummary, Match } from '@/types/riot';
 
 // Fetch new match IDs from Riot API (only those not in DB)
-// For first load: paginate through ALL history
-// For refresh: just get recent ones until we hit existing matches
+// Limited to 100 matches max to respect API rate limits (100 req/2min)
 async function fetchNewMatchIds(
   puuid: string,
   region: RegionKey,
-  existingMatchIds: Set<string>,
-  isFirstLoad: boolean
+  existingMatchIds: Set<string>
 ): Promise<string[]> {
   const newMatchIds: string[] = [];
-  let start = 0;
-  const batchSize = 100; // Riot API max
-  let hasMore = true;
-  let consecutiveExisting = 0;
 
-  while (hasMore) {
-    try {
-      const batchIds = await getMatchIds(puuid, region, batchSize, undefined, start);
+  try {
+    // Fetch 100 most recent match IDs (API max per request)
+    const batchIds = await getMatchIds(puuid, region, 100, undefined, 0);
 
-      if (batchIds.length === 0) {
-        hasMore = false;
-        break;
+    for (const id of batchIds) {
+      if (!existingMatchIds.has(id)) {
+        newMatchIds.push(id);
       }
-
-      let newMatchesInBatch = 0;
-      for (const id of batchIds) {
-        if (!existingMatchIds.has(id)) {
-          newMatchIds.push(id);
-          newMatchesInBatch++;
-        }
-      }
-
-      // If all matches in this batch already exist in DB, we can stop
-      if (newMatchesInBatch === 0) {
-        consecutiveExisting++;
-        // For refresh: stop immediately when we hit existing matches
-        // For first load: stop after 2 consecutive batches of only existing matches
-        if (!isFirstLoad || consecutiveExisting >= 2) {
-          hasMore = false;
-          break;
-        }
-      } else {
-        consecutiveExisting = 0;
-      }
-
-      // If we got fewer than batchSize, we've reached the end
-      if (batchIds.length < batchSize) {
-        hasMore = false;
-      } else {
-        start += batchSize;
-        // Safety limit: don't fetch more than 1000 matches in one request
-        if (start >= 1000) {
-          hasMore = false;
-        }
-      }
-    } catch (error) {
-      console.warn(`Error fetching batch at start=${start}:`, error);
-      hasMore = false;
     }
+  } catch (error) {
+    console.warn('Error fetching match IDs:', error);
   }
 
   return newMatchIds;
@@ -98,10 +59,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Get stored match IDs from DB
     const storedMatchIds = await getStoredMatchIds(puuid, 10000);
     const storedMatchIdSet = new Set(storedMatchIds);
-    const isFirstLoad = storedMatchIds.length === 0;
 
-    // Fetch new match IDs from Riot API
-    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstLoad);
+    // Fetch new match IDs from Riot API (max 100)
+    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet);
 
     console.log(`Found ${newMatchIds.length} new matches, ${storedMatchIds.length} in DB`);
 
