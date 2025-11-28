@@ -248,6 +248,7 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
         gameMode: match.info.gameMode,
         queueId: match.info.queueId,
         participants: match.info.participants,
+        teams: match.info.teams,
         updatedAt: new Date(),
       })
       .onConflictDoNothing();
@@ -439,6 +440,8 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
       const participant = participants.find(p => p.puuid === puuid);
       if (!participant) continue;
 
+      const teams = (match.teams as Match['info']['teams']) || [];
+
       summaries.push({
         matchId: match.matchId,
         queueId: match.queueId,
@@ -448,7 +451,7 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
         win: pm.win,
         participant,
         allParticipants: participants,
-        teams: [] as Match['info']['teams'], // Teams not stored in DB currently
+        teams,
       });
     }
 

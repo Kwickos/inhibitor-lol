@@ -20,6 +20,7 @@ export const matches = sqliteTable('matches', {
   gameMode: text('game_mode').notNull(),
   queueId: integer('queue_id').notNull(),
   participants: text('participants', { mode: 'json' }).notNull(), // JSON array of participant data
+  teams: text('teams', { mode: 'json' }), // JSON array of team data (objectives, etc.)
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
 
