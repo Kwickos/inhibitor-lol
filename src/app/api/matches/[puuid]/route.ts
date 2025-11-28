@@ -1,8 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMatchIds, getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchCount } from '@/lib/cache';
+import { getMatchIds, getMatch, storePlayerMatch, getStoredMatchIds } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError } from '@/lib/riot-api';
 import type { MatchSummary, Match } from '@/types/riot';
+
+// Fetch ALL match IDs from Riot API by paginating through history
+async function fetchAllMatchIds(
+  puuid: string,
+  region: RegionKey,
+  existingMatchIds: Set<string>
+): Promise<string[]> {
+  const allMatchIds: string[] = [];
+  let start = 0;
+  const batchSize = 100; // Riot API max
+  let hasMore = true;
+  let consecutiveExisting = 0;
+
+  while (hasMore) {
+    try {
+      const batchIds = await getMatchIds(puuid, region, batchSize, undefined, start);
+
+      if (batchIds.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      let newMatchesInBatch = 0;
+      for (const id of batchIds) {
+        if (!existingMatchIds.has(id)) {
+          allMatchIds.push(id);
+          newMatchesInBatch++;
+        }
+      }
+
+      // If all matches in this batch already exist in DB, we can stop
+      // (we've reached the point where we already have historical data)
+      if (newMatchesInBatch === 0) {
+        consecutiveExisting++;
+        // Stop after 2 consecutive batches of only existing matches
+        if (consecutiveExisting >= 2) {
+          hasMore = false;
+          break;
+        }
+      } else {
+        consecutiveExisting = 0;
+      }
+
+      // If we got fewer than batchSize, we've reached the end
+      if (batchIds.length < batchSize) {
+        hasMore = false;
+      } else {
+        start += batchSize;
+        // Safety limit: don't fetch more than 1000 matches in one request
+        if (start >= 1000) {
+          hasMore = false;
+        }
+      }
+    } catch (error) {
+      console.warn(`Error fetching batch at start=${start}:`, error);
+      hasMore = false;
+    }
+  }
+
+  return allMatchIds;
+}
 
 // Prefetch match data for frequent teammates (fire and forget)
 async function prefetchTeammateData(
@@ -65,10 +126,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { searchParams } = new URL(request.url);
 
     const region = searchParams.get('region') as RegionKey;
-    const count = parseInt(searchParams.get('count') || '20', 10);
-    const start = parseInt(searchParams.get('start') || '0', 10);
-    const queueParam = searchParams.get('queue'); // Queue ID filter
-    const queueIds = queueParam ? queueParam.split(',').map(Number) : null;
 
     // Validate region
     if (!region || !REGIONS[region]) {
@@ -78,109 +135,76 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Strategy: Combine DB stored matches with fresh API data
-    // 1. Get recent match IDs from Riot API (max 100)
-    // 2. Get stored match IDs from DB (can be unlimited)
-    // 3. Merge and deduplicate, keeping chronological order
+    // Strategy: Fetch ALL matches and store in DB
+    // 1. Get all stored match IDs from DB
+    // 2. Fetch new matches from Riot API (paginate until we hit existing ones)
+    // 3. Fetch and store all new match details
+    // 4. Return all matches from DB + new ones
 
-    // Get match IDs from Riot API (recent games)
-    const fetchCount = Math.min(100, queueIds ? (count + start) * 2 : count + start);
-    const apiMatchIds = await getMatchIds(puuid, region, fetchCount);
+    // Get stored match IDs from DB (unlimited)
+    const storedMatchIds = await getStoredMatchIds(puuid, 10000);
+    const storedMatchIdSet = new Set(storedMatchIds);
 
-    // Get stored match IDs from DB (historical games)
-    const storedMatchIds = await getStoredMatchIds(puuid, 500, queueIds || undefined);
+    // Fetch new matches from Riot API
+    const newMatchIds = await fetchAllMatchIds(puuid, region, storedMatchIdSet);
 
-    // Merge and deduplicate - API matches first (most recent), then stored
-    const seenIds = new Set<string>();
-    const allMatchIds: string[] = [];
+    // Combine: new matches first (most recent), then stored
+    const allMatchIds = [...newMatchIds, ...storedMatchIds];
 
-    // Add API matches first
-    for (const id of apiMatchIds) {
-      if (!seenIds.has(id)) {
-        seenIds.add(id);
-        allMatchIds.push(id);
-      }
-    }
-
-    // Add stored matches that aren't in API results
-    for (const id of storedMatchIds) {
-      if (!seenIds.has(id)) {
-        seenIds.add(id);
-        allMatchIds.push(id);
-      }
-    }
-
-    // If filtering by queue, we need to fetch matches and filter (for API matches not yet filtered)
-    let matchIds = allMatchIds;
-    if (queueIds && queueIds.length > 0) {
-      // Fetch all match details to filter by queue
-      const matchDetails = await Promise.all(
-        allMatchIds.map(async (matchId) => {
-          try {
-            const match = await getMatch(matchId, region);
-            return { matchId, queueId: match.info.queueId, gameCreation: match.info.gameCreation };
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      // Filter by queue IDs and sort by creation time
-      matchIds = matchDetails
-        .filter((m): m is { matchId: string; queueId: number; gameCreation: number } =>
-          m !== null && queueIds.includes(m.queueId)
-        )
-        .sort((a, b) => b.gameCreation - a.gameCreation)
-        .map(m => m.matchId);
-    }
-
-    const paginatedIds = matchIds.slice(start, start + count);
-
-    // Fetch match details in parallel (limit concurrency)
+    // Fetch all match details (from cache/DB or API)
     const fullMatches: Match[] = [];
+    const matchSummaries: MatchSummary[] = [];
 
-    const matchPromises = paginatedIds.map(async (matchId) => {
-      try {
-        const match = await getMatch(matchId, region);
-        fullMatches.push(match); // Keep full match for prefetch
+    // Process in batches to avoid overwhelming the API
+    const batchSize = 20;
+    for (let i = 0; i < allMatchIds.length; i += batchSize) {
+      const batchIds = allMatchIds.slice(i, i + batchSize);
 
-        // Store player match data for champion stats (fire and forget)
-        storePlayerMatch(puuid, match).catch(console.warn);
+      const batchPromises = batchIds.map(async (matchId) => {
+        try {
+          const match = await getMatch(matchId, region);
+          fullMatches.push(match);
 
-        // Find participant data for the requested player
-        const participant = match.info.participants.find(p => p.puuid === puuid);
+          // Store player match data for ALL participants (fire and forget)
+          storePlayerMatch(puuid, match).catch(console.warn);
 
-        if (!participant) return null;
+          // Find participant data for the requested player
+          const participant = match.info.participants.find(p => p.puuid === puuid);
 
-        const summary: MatchSummary = {
-          matchId: match.metadata.matchId,
-          queueId: match.info.queueId,
-          gameCreation: match.info.gameCreation,
-          gameDuration: match.info.gameDuration,
-          gameMode: match.info.gameMode,
-          participant,
-          win: participant.win,
-          // Include all participants and teams for expanded view
-          allParticipants: match.info.participants,
-          teams: match.info.teams,
-        };
+          if (!participant) return null;
 
-        return summary;
-      } catch (error) {
-        console.warn(`Failed to fetch match ${matchId}:`, error);
-        return null;
-      }
-    });
+          const summary: MatchSummary = {
+            matchId: match.metadata.matchId,
+            queueId: match.info.queueId,
+            gameCreation: match.info.gameCreation,
+            gameDuration: match.info.gameDuration,
+            gameMode: match.info.gameMode,
+            participant,
+            win: participant.win,
+            allParticipants: match.info.participants,
+            teams: match.info.teams,
+          };
 
-    const matchSummaries = (await Promise.all(matchPromises)).filter(Boolean);
+          return summary;
+        } catch (error) {
+          console.warn(`Failed to fetch match ${matchId}:`, error);
+          return null;
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      matchSummaries.push(...batchResults.filter((s): s is MatchSummary => s !== null));
+    }
+
+    // Sort by game creation time (most recent first)
+    matchSummaries.sort((a, b) => b.gameCreation - a.gameCreation);
 
     // Prefetch frequent teammates' data in background (fire and forget)
-    prefetchTeammateData(fullMatches, puuid, region).catch(() => {});
+    prefetchTeammateData(fullMatches.slice(0, 50), puuid, region).catch(() => {});
 
     return NextResponse.json({
       matches: matchSummaries,
-      total: matchIds.length,
-      hasMore: matchIds.length > start + count,
+      total: matchSummaries.length,
     });
   } catch (error) {
     console.error('Matches API error:', error);

@@ -164,15 +164,17 @@ export async function getMatchIds(
   puuid: string,
   region: RegionKey,
   count: number = 20,
-  queue?: number
+  queue?: number,
+  start: number = 0
 ): Promise<string[]> {
-  // Include count in cache key to avoid returning fewer matches than requested
+  // Include count and start in cache key to avoid returning wrong matches
   const queueSuffix = queue ? `:q${queue}` : '';
   const countSuffix = `:c${count}`;
-  const cacheKey = cacheKeys.matchIds(puuid) + queueSuffix + countSuffix;
+  const startSuffix = start > 0 ? `:s${start}` : '';
+  const cacheKey = cacheKeys.matchIds(puuid) + queueSuffix + countSuffix + startSuffix;
 
   return getCachedOrFetch(cacheKey, CACHE_TTL.MATCH_IDS, async () => {
-    return riotApi.getMatchIds(puuid, region, { count, queue });
+    return riotApi.getMatchIds(puuid, region, { count, queue, start });
   });
 }
 

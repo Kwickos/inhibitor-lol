@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MatchCard } from '@/components/match-card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -73,9 +73,7 @@ interface GroupedMatches {
   losses: number;
 }
 
-const INITIAL_GAMES = 50;
 const GAMES_PER_PAGE = 15;
-const LOAD_MORE_COUNT = 50;
 
 // Helper to format date
 function formatDateLabel(date: Date): string {
@@ -145,18 +143,16 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
   // All matches (unfiltered) - this is our source of truth
   const [allMatches, setAllMatches] = useState<MatchSummary[]>(initialMatches);
   const [isLoading, setIsLoading] = useState(initialMatches.length === 0);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<QueueFilterId>('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const hasFetched = useRef(false);
 
-  // Build API URL (always fetch ALL matches, no queue filter)
-  const buildApiUrl = useCallback((start: number = 0, count: number = INITIAL_GAMES) => {
-    return `/api/matches/${puuid}?region=${region}&count=${count}&start=${start}`;
+  // Build API URL (fetches ALL matches)
+  const buildApiUrl = useCallback(() => {
+    return `/api/matches/${puuid}?region=${region}`;
   }, [puuid, region]);
 
   // Filter matches client-side based on active filter
@@ -175,7 +171,6 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       if (cached) {
         setAllMatches(cached.matches);
         setLastUpdated(new Date(cached.timestamp));
-        setHasMore(cached.matches.length >= INITIAL_GAMES);
         setIsLoading(false);
         return;
       }
@@ -184,15 +179,13 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
     setIsLoading(!forceRefresh);
     if (forceRefresh) setIsRefreshing(true);
     setError(null);
-    setHasMore(true);
 
     try {
-      const res = await fetch(buildApiUrl(0, INITIAL_GAMES));
+      const res = await fetch(buildApiUrl());
       if (!res.ok) throw new Error('Failed to fetch matches');
 
       const data = await res.json();
       setAllMatches(data.matches);
-      setHasMore(data.hasMore);
       setLastUpdated(new Date());
 
       // Save to cache (all matches)
@@ -217,30 +210,6 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
   // Manual refresh
   const handleRefresh = () => {
     fetchMatches(true);
-  };
-
-  // Load more matches
-  const loadMoreMatches = async () => {
-    if (isLoadingMore || !hasMore) return;
-
-    setIsLoadingMore(true);
-    try {
-      const res = await fetch(buildApiUrl(allMatches.length, LOAD_MORE_COUNT));
-      if (!res.ok) throw new Error('Failed to fetch more matches');
-
-      const data = await res.json();
-      if (data.matches.length > 0) {
-        const newMatches = [...allMatches, ...data.matches];
-        setAllMatches(newMatches);
-        // Update cache with new matches
-        setCachedMatches(puuid, newMatches);
-      }
-      setHasMore(data.hasMore);
-    } catch (err) {
-      console.error('Failed to load more matches:', err);
-    } finally {
-      setIsLoadingMore(false);
-    }
   };
 
   // Handle filter change - just reset page, no refetch needed!
@@ -448,26 +417,11 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
             </div>
           )}
 
-          {/* Load More button */}
-          {hasMore && (
-            <div className="flex flex-col items-center gap-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={loadMoreMatches}
-                disabled={isLoadingMore}
-                className="w-full max-w-xs"
-              >
-                {isLoadingMore ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  `Load More Games (${allMatches.length} loaded)`
-                )}
-              </Button>
+          {/* Total games info */}
+          {allMatches.length > 0 && (
+            <div className="flex justify-center pt-4">
               <p className="text-xs text-muted-foreground">
-                Games are stored locally for faster access
+                {allMatches.length} games loaded
               </p>
             </div>
           )}
