@@ -1,10 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import Image from 'next/image';
 import { Flame } from 'lucide-react';
-import { getRankedEmblemUrl } from '@/lib/riot-api';
 import { getTierColor, RANKED_QUEUE_TYPES } from '@/lib/constants/queues';
+import { getRankIcon } from '@/components/icons/rank-icons';
 import { cn } from '@/lib/utils';
 import type { LeagueEntry } from '@/types/riot';
 
@@ -84,14 +83,10 @@ export function RankCard({ entry, delay = 0 }: RankCardProps) {
               </svg>
               {/* Emblem in center */}
               <div className="absolute inset-0 flex items-center justify-center">
-                <Image
-                  src={getRankedEmblemUrl(entry.tier)}
-                  alt={entry.tier}
-                  width={52}
-                  height={52}
-                  className="drop-shadow-lg"
-                  unoptimized
-                />
+                {(() => {
+                  const RankIcon = getRankIcon(entry.tier);
+                  return <RankIcon className="w-12 h-12 drop-shadow-lg" />;
+                })()}
               </div>
             </div>
 
