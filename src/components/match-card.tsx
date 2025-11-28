@@ -321,84 +321,131 @@ function calculateGameScore(
   const improvements: string[] = [];
 
   // --- KDA ---
-  if (kda >= 6) insights.push('Outstanding KDA');
-  else if (kda >= 4) insights.push('Excellent KDA');
-  else if (kda >= 2.5) insights.push('Solid KDA');
+  if (kda >= 6) insights.push(`${kda.toFixed(1)} KDA - hard carry performance`);
+  else if (kda >= 4) insights.push(`${kda.toFixed(1)} KDA - minimal deaths, high impact`);
+  else if (kda >= 2.5) insights.push(`${kda.toFixed(1)} KDA - solid game`);
 
-  if (participant.deaths > 7) improvements.push('Too many deaths - play safer');
-  else if (participant.deaths > 5) improvements.push('Reduce deaths - watch positioning');
+  if (participant.deaths > 7) {
+    improvements.push(`${participant.deaths} deaths - got caught out or took bad fights`);
+  } else if (participant.deaths > 5) {
+    improvements.push(`${participant.deaths} deaths - check minimap before trading`);
+  }
 
   // --- Kill Participation ---
   const kpGood = isSupport || isJungler ? 65 : 50;
   const kpGreat = isSupport || isJungler ? 75 : 65;
   const kpBad = isSupport || isJungler ? 50 : 35;
 
-  if (killParticipation >= kpGreat) insights.push('Excellent kill participation');
-  else if (killParticipation >= kpGood) insights.push('Good team presence');
+  if (killParticipation >= kpGreat) {
+    insights.push(`${Math.round(killParticipation)}% KP - involved in almost every kill`);
+  } else if (killParticipation >= kpGood) {
+    insights.push(`${Math.round(killParticipation)}% KP - good team presence`);
+  }
 
   if (killParticipation < kpBad) {
-    improvements.push(isSupport ? 'Stay with your team more' : isJungler ? 'Gank more often' : 'Join more fights');
+    if (isSupport) {
+      improvements.push(`${Math.round(killParticipation)}% KP - roam with jungler or follow ADC`);
+    } else if (isJungler) {
+      improvements.push(`${Math.round(killParticipation)}% KP - gank more, track enemy jungler`);
+    } else {
+      improvements.push(`${Math.round(killParticipation)}% KP - TP to fights or rotate faster`);
+    }
   }
 
   // --- VS Opponent ---
   if (opponent) {
-    if (goldDiff > 2000) insights.push(`Dominated lane (+${Math.round(goldDiff)} gold)`);
-    else if (goldDiff > 800) insights.push('Won lane in gold');
-    else if (goldDiff < -2000) improvements.push('Lost lane hard - focus on fundamentals');
-    else if (goldDiff < -800) improvements.push('Fell behind in lane');
-
-    if (!isSupport && !isJungler) {
-      if (csDiff > 30) insights.push(`CS lead vs opponent (+${csDiff})`);
-      else if (csDiff < -30) improvements.push('Improve last hitting vs opponent');
+    if (goldDiff > 2000) {
+      insights.push(`Lane gap: +${Math.round(goldDiff)}g on opponent`);
+    } else if (goldDiff > 800) {
+      insights.push(`Won lane: +${Math.round(goldDiff)}g lead`);
+    } else if (goldDiff < -2000) {
+      improvements.push(`Lost lane: ${Math.abs(Math.round(goldDiff))}g behind - got zoned or ganked`);
+    } else if (goldDiff < -800) {
+      improvements.push(`Fell behind: ${Math.abs(Math.round(goldDiff))}g down in lane`);
     }
 
-    if (xpDiff > 1000) insights.push('Strong XP advantage');
-    else if (xpDiff < -1500) improvements.push('Fell behind in XP');
+    if (!isSupport && !isJungler) {
+      if (csDiff > 30) {
+        insights.push(`CS diff: +${csDiff} vs opponent - clean last-hitting`);
+      } else if (csDiff < -30) {
+        improvements.push(`CS diff: ${csDiff} - missed CS under pressure or bad backs`);
+      }
+    }
+
+    if (xpDiff > 1000) {
+      insights.push(`+${Math.round(xpDiff)} XP lead - level advantage in fights`);
+    } else if (xpDiff < -1500) {
+      improvements.push(`${Math.round(xpDiff)} XP behind - died too much or missed waves`);
+    }
   }
 
   // --- Damage ---
   if (!isSupport) {
-    if (damageShareTeam >= 30) insights.push('Carried damage for team');
-    else if (damageShareTeam >= 25) insights.push('High damage output');
+    if (damageShareTeam >= 30) {
+      insights.push(`${Math.round(damageShareTeam)}% team damage - main carry this game`);
+    } else if (damageShareTeam >= 25) {
+      insights.push(`${Math.round(damageShareTeam)}% team damage - high DPS output`);
+    }
 
     if (damageShareTeam < 12 && (isADC || isMid)) {
-      improvements.push('Deal more damage - position better in fights');
+      improvements.push(`${Math.round(damageShareTeam)}% damage - arrived late to fights or got zoned`);
     } else if (damageShareTeam < 15 && isTop) {
-      improvements.push('Be more impactful in teamfights');
+      improvements.push(`${Math.round(damageShareTeam)}% damage - splitpush less, group more`);
     }
   } else {
     // Support-specific metrics
-    if (participant.totalHealsOnTeammates > 8000) insights.push('Massive healing output');
-    else if (participant.totalHealsOnTeammates > 5000) insights.push('Great heals');
-    if (participant.totalDamageShieldedOnTeammates > 5000) insights.push('Strong shields');
+    if (participant.totalHealsOnTeammates > 8000) {
+      insights.push(`${Math.round(participant.totalHealsOnTeammates / 1000)}k healing - kept team alive`);
+    } else if (participant.totalHealsOnTeammates > 5000) {
+      insights.push(`${Math.round(participant.totalHealsOnTeammates / 1000)}k healing`);
+    }
+    if (participant.totalDamageShieldedOnTeammates > 5000) {
+      insights.push(`${Math.round(participant.totalDamageShieldedOnTeammates / 1000)}k shields`);
+    }
 
     // CC time for supports
-    if (ccTimePerMin >= 8) insights.push('Excellent CC presence');
-    else if (ccTimePerMin >= 5) insights.push('Good crowd control');
-    else if (ccTimePerMin < 3 && minutes > 15) improvements.push('Land more CC abilities');
+    if (ccTimePerMin >= 8) insights.push('Heavy CC - locked down key targets');
+    else if (ccTimePerMin >= 5) insights.push('Good CC output');
+    else if (ccTimePerMin < 3 && minutes > 15) {
+      improvements.push('Low CC time - hit more abilities or pick engage champ');
+    }
 
     // Assist ratio for supports
-    if (assistRatio >= 60) insights.push('Involved in most kills');
-    else if (assistRatio < 35) improvements.push('Stay closer to carries');
+    if (assistRatio >= 60) {
+      insights.push(`${Math.round(assistRatio)}% of team kills - playmaker`);
+    } else if (assistRatio < 35) {
+      improvements.push(`${Math.round(assistRatio)}% assist ratio - stay near carries in fights`);
+    }
   }
 
   // --- Farming ---
   if (!isSupport) {
     if (isJungler) {
       // Jungler-specific farming insights
-      if (jungleCampsPerMin >= 5) insights.push('Excellent clear speed');
-      else if (jungleCampsPerMin >= 4) insights.push('Good jungle efficiency');
-      else if (jungleCampsPerMin < 3.5) improvements.push('Clear camps faster');
+      if (jungleCampsPerMin >= 5) {
+        insights.push(`${jungleCampsPerMin.toFixed(1)} camps/min - efficient pathing`);
+      } else if (jungleCampsPerMin >= 4) {
+        insights.push('Solid jungle clear');
+      } else if (jungleCampsPerMin < 3.5) {
+        improvements.push(`${jungleCampsPerMin.toFixed(1)} camps/min - full clear more, don't afk gank`);
+      }
 
       // Jungler vs enemy jungler
-      if (jungleGoldDiff > 1500) insights.push('Outfarmed enemy jungler');
-      else if (jungleGoldDiff < -1500) improvements.push('Fell behind enemy jungler');
+      if (jungleGoldDiff > 1500) {
+        insights.push(`Jungle diff: +${Math.round(jungleGoldDiff)}g vs enemy JG`);
+      } else if (jungleGoldDiff < -1500) {
+        improvements.push(`Jungle diff: ${Math.round(jungleGoldDiff)}g - got invaded or pathed wrong`);
+      }
     } else {
       const csGreat = isTop ? 7 : 8;
       const csBad = isTop ? 5 : 5.5;
 
-      if (csPerMin >= csGreat) insights.push('Great farming');
-      if (csPerMin < csBad) improvements.push('Improve CS/min');
+      if (csPerMin >= csGreat) {
+        insights.push(`${csPerMin.toFixed(1)} CS/min - clean farming`);
+      }
+      if (csPerMin < csBad) {
+        improvements.push(`${csPerMin.toFixed(1)} CS/min - practice last-hitting`);
+      }
     }
   }
 
@@ -406,75 +453,86 @@ function calculateGameScore(
   const visionGreat = isSupport ? 2.0 : isJungler ? 0.9 : 0.7;
   const visionBad = isSupport ? 1.2 : isJungler ? 0.5 : 0.4;
 
-  if (visionPerMin >= visionGreat) insights.push(isSupport ? 'Excellent vision control' : 'Great warding');
+  if (visionPerMin >= visionGreat) {
+    insights.push(isSupport
+      ? `${visionPerMin.toFixed(1)} vision/min - map control`
+      : `${visionPerMin.toFixed(1)} vision/min - great awareness`);
+  }
   if (visionPerMin < visionBad) {
-    improvements.push(isSupport ? 'Ward more - vision is crucial' : 'Buy more control wards');
+    improvements.push(isSupport
+      ? `${visionPerMin.toFixed(1)} vision/min - use support item charges`
+      : `${visionPerMin.toFixed(1)} vision/min - buy pinks, use trinket`);
   }
 
   // Control wards
-  if (controlWardsBought >= 5) insights.push('Great control ward usage');
-  else if (controlWardsBought >= 3) insights.push('Good control ward usage');
-  else if (controlWardsBought <= 1 && minutes > 20) {
-    improvements.push('Buy control wards');
+  if (controlWardsBought >= 5) {
+    insights.push(`${controlWardsBought} control wards - secured key areas`);
+  } else if (controlWardsBought >= 3) {
+    insights.push(`${controlWardsBought} control wards`);
+  } else if (controlWardsBought <= 1 && minutes > 20) {
+    improvements.push(`Only ${controlWardsBought} pink - buy one every back`);
   }
 
   // Wards placed (especially for supports)
   if (isSupport) {
-    if (wardsPlaced >= 25) insights.push(`${wardsPlaced} wards placed`);
-    else if (wardsPlaced < 15 && minutes > 20) improvements.push('Place more wards');
+    if (wardsPlaced >= 25) insights.push(`${wardsPlaced} wards placed - map lit up`);
+    else if (wardsPlaced < 15 && minutes > 20) {
+      improvements.push(`${wardsPlaced} wards in ${Math.round(minutes)}min - use trinket on CD`);
+    }
   }
 
   // Wards killed (vision denial)
-  if (wardsKilled >= 8) insights.push('Great vision denial');
-  else if (wardsKilled >= 5) insights.push('Good ward clearing');
+  if (wardsKilled >= 8) insights.push(`${wardsKilled} wards killed - denied enemy info`);
+  else if (wardsKilled >= 5) insights.push(`${wardsKilled} wards cleared`);
   else if (isSupport && wardsKilled < 3 && minutes > 20) {
-    improvements.push('Clear more enemy wards');
+    improvements.push(`${wardsKilled} wards cleared - sweep more, deny vision`);
   }
 
   // --- Objectives ---
-  if (epicSteals > 0) insights.push(`Epic steal${epicSteals > 1 ? 's' : ''}! (${epicSteals})`);
-  if (participant.firstBloodKill) insights.push('First blood');
-  if (participant.firstTowerKill) insights.push('First tower');
+  if (epicSteals > 0) insights.push(`${epicSteals} objective steal${epicSteals > 1 ? 's' : ''} - clutch smite`);
+  if (participant.firstBloodKill) insights.push('First blood - early lead secured');
+  if (participant.firstTowerKill) insights.push('First tower - map opened up');
 
-  if (turretKills >= 3) insights.push('Tower destroyer');
+  if (turretKills >= 3) insights.push(`${turretKills} towers taken - pushed objectives`);
   else if (isTop && turretDamage < 2000 && minutes > 20) {
-    improvements.push('Push for tower damage');
+    improvements.push(`${Math.round(turretDamage)} tower dmg - hit plates after kills`);
   }
 
   if (isJungler) {
-    if (personalDragons >= 3) insights.push('Dragon control');
+    if (personalDragons >= 3) insights.push(`${personalDragons} dragons secured`);
     else if (personalDragons === 0 && minutes > 25) {
-      improvements.push('Prioritize dragon');
+      improvements.push('0 dragons - setup vision, call for prio');
     }
     if (personalBarons >= 1) insights.push('Secured baron');
 
     // Objective damage for junglers
-    if (objectiveDamage > 25000) insights.push('High objective damage');
-    else if (objectiveDamage < 10000 && minutes > 20) {
-      improvements.push('Deal more damage to objectives');
+    if (objectiveDamage > 25000) {
+      insights.push(`${Math.round(objectiveDamage / 1000)}k objective damage`);
+    } else if (objectiveDamage < 10000 && minutes > 20) {
+      improvements.push(`${Math.round(objectiveDamage / 1000)}k obj dmg - hit dragon/baron more`);
     }
   }
 
   // --- Tank duty ---
   if ((isTop || isSupport) && damageTakenShare >= 30) {
-    insights.push('Strong frontline presence');
+    insights.push(`${Math.round(damageTakenShare)}% dmg taken - strong frontline`);
   }
 
   // --- Multi-kills ---
-  if (participant.pentaKills > 0) insights.push('PENTAKILL!');
-  else if (participant.quadraKills > 0) insights.push('Quadra kill!');
+  if (participant.pentaKills > 0) insights.push('PENTAKILL! Team ace secured');
+  else if (participant.quadraKills > 0) insights.push('Quadra kill - almost the penta');
   else if (participant.tripleKills > 0) insights.push('Triple kill');
 
   // --- Clean game ---
-  if (isWin && participant.deaths <= 1) insights.push('Nearly flawless game');
-  else if (isWin && participant.deaths <= 3 && kda >= 4) insights.push('Clean performance');
+  if (isWin && participant.deaths <= 1) insights.push('Near-perfect game - almost deathless');
+  else if (isWin && participant.deaths <= 3 && kda >= 4) insights.push('Clean win - minimal mistakes');
 
   // --- Fallback if no insights ---
   if (insights.length === 0) {
     if (isWin) {
-      insights.push('Contributed to the win');
+      insights.push('Contributed to victory');
     } else {
-      insights.push('Tough game - keep practicing!');
+      insights.push('Tough matchup - review what went wrong');
     }
   }
 
