@@ -7,14 +7,15 @@ export const redis = new Redis({
 });
 
 // Cache TTLs in seconds
+// Note: Matches are also stored in Turso DB, so Redis is just a short-term cache
 export const CACHE_TTL = {
-  SUMMONER: 2 * 60 * 60, // 2 hours
-  MATCH_IDS: 10 * 60, // 10 minutes
-  MATCH_DETAILS: 7 * 24 * 60 * 60, // 7 days (matches don't change)
-  RANKS: 15 * 60, // 15 minutes
-  MASTERIES: 2 * 60 * 60, // 2 hours
+  SUMMONER: 30 * 60, // 30 minutes (DB has permanent storage)
+  MATCH_IDS: 5 * 60, // 5 minutes
+  MATCH_DETAILS: 30 * 60, // 30 minutes (DB has permanent storage)
+  RANKS: 10 * 60, // 10 minutes
+  MASTERIES: 30 * 60, // 30 minutes
   LIVE_GAME: 30, // 30 seconds
-  ANALYSIS: 15 * 60, // 15 minutes
+  ANALYSIS: 10 * 60, // 10 minutes
 } as const;
 
 // Cache key generators

@@ -1,7 +1,7 @@
 import { redis, CACHE_TTL, cacheKeys } from './redis';
 import { db } from './db';
-import { summoners, matches, ranks, playerMatches } from '@/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { summoners, matches, ranks, playerMatches, championPositionRates } from '@/db/schema';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import type { RegionKey } from './constants/regions';
 import type {
   RiotAccount,
@@ -279,15 +279,19 @@ export async function getLiveGame(
   // Short TTL, so we check cache but fetch often
   try {
     const cached = await redis.get<CurrentGameInfo | null>(cacheKey);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined && cached !== null) {
+      return cached;
+    }
   } catch (e) {
     console.warn('Redis error:', e);
   }
 
   const liveGame = await riotApi.getCurrentGame(puuid, region);
 
-  // Store in Redis (even null to prevent repeated calls)
-  redis.set(cacheKey, liveGame, { ex: CACHE_TTL.LIVE_GAME }).catch(console.warn);
+  // Only cache if player is in game (don't cache null)
+  if (liveGame) {
+    redis.set(cacheKey, liveGame, { ex: CACHE_TTL.LIVE_GAME }).catch(console.warn);
+  }
 
   return liveGame;
 }
@@ -386,5 +390,127 @@ export async function getChampionStats(puuid: string) {
   } catch (e) {
     console.warn('DB error reading champion stats:', e);
     return []; // Return empty array if DB not available
+  }
+}
+
+// Aggregate champion position rates from playerMatches
+export async function aggregateChampionPositionRates(): Promise<void> {
+  try {
+    // Get all position counts grouped by champion
+    const results = await db
+      .select({
+        championId: playerMatches.championId,
+        position: playerMatches.teamPosition,
+        count: sql<number>`count(*)`.as('count'),
+      })
+      .from(playerMatches)
+      .where(sql`${playerMatches.teamPosition} IS NOT NULL AND ${playerMatches.teamPosition} != ''`)
+      .groupBy(playerMatches.championId, playerMatches.teamPosition);
+
+    const now = new Date();
+
+    // Upsert each result
+    for (const row of results) {
+      if (!row.position) continue;
+
+      // Normalize position names
+      const normalizedPosition = normalizePosition(row.position);
+      if (!normalizedPosition) continue;
+
+      await db
+        .insert(championPositionRates)
+        .values({
+          championId: row.championId,
+          position: normalizedPosition,
+          gamesPlayed: row.count,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [championPositionRates.championId, championPositionRates.position],
+          set: {
+            gamesPlayed: row.count,
+            updatedAt: now,
+          },
+        });
+    }
+
+    console.log(`Aggregated position rates for ${results.length} champion-position combinations`);
+  } catch (e) {
+    console.warn('DB error aggregating champion position rates:', e);
+  }
+}
+
+// Normalize Riot position names to our format
+function normalizePosition(position: string): string | null {
+  const mapping: Record<string, string> = {
+    TOP: 'TOP',
+    JUNGLE: 'JUNGLE',
+    MIDDLE: 'MIDDLE',
+    MID: 'MIDDLE',
+    BOTTOM: 'BOTTOM',
+    ADC: 'BOTTOM',
+    UTILITY: 'UTILITY',
+    SUPPORT: 'UTILITY',
+  };
+  return mapping[position.toUpperCase()] || null;
+}
+
+// Get champion position rates from our DB
+export async function getLocalChampionPositionRates(
+  championId: number
+): Promise<Record<string, number> | null> {
+  try {
+    const rates = await db.query.championPositionRates.findMany({
+      where: eq(championPositionRates.championId, championId),
+    });
+
+    if (rates.length === 0) return null;
+
+    // Calculate total games for this champion
+    const totalGames = rates.reduce((sum, r) => sum + r.gamesPlayed, 0);
+    if (totalGames === 0) return null;
+
+    // Convert to play rate percentages
+    const result: Record<string, number> = {};
+    for (const rate of rates) {
+      result[rate.position] = rate.gamesPlayed / totalGames;
+    }
+
+    return result;
+  } catch (e) {
+    console.warn('DB error reading champion position rates:', e);
+    return null;
+  }
+}
+
+// Get all champion position rates from our DB (for caching)
+export async function getAllLocalChampionPositionRates(): Promise<Record<number, Record<string, number>>> {
+  try {
+    const allRates = await db.query.championPositionRates.findMany();
+
+    // Group by championId
+    const byChampion = new Map<number, { position: string; games: number }[]>();
+    for (const rate of allRates) {
+      const existing = byChampion.get(rate.championId) || [];
+      existing.push({ position: rate.position, games: rate.gamesPlayed });
+      byChampion.set(rate.championId, existing);
+    }
+
+    // Calculate percentages
+    const result: Record<number, Record<string, number>> = {};
+    for (const [champId, positions] of byChampion) {
+      const totalGames = positions.reduce((sum, p) => sum + p.games, 0);
+      if (totalGames === 0) continue;
+
+      result[champId] = {};
+      for (const pos of positions) {
+        result[champId][pos.position] = pos.games / totalGames;
+      }
+    }
+
+    return result;
+  } catch (e) {
+    console.warn('DB error reading all champion position rates:', e);
+    return {};
   }
 }

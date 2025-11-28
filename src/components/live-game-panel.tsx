@@ -2,15 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Clock, Swords, Shield, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { getChampionIconUrl } from '@/lib/riot-api';
-import { getTierColor } from '@/lib/constants/queues';
+import { getTierColor, getQueueInfo } from '@/lib/constants/queues';
+import { getRoleIcon } from '@/components/icons/role-icons';
 import { cn } from '@/lib/utils';
 
 interface LiveGamePanelProps {
   currentPuuid: string;
+  region: string;
   gameData: {
     gameId: number;
     gameMode: string;
@@ -24,6 +27,7 @@ interface LiveGamePanelProps {
       gameName: string;
       tagLine: string;
       puuid: string;
+      role?: string;
       rank?: {
         tier: string;
         rank: string;
@@ -33,7 +37,7 @@ interface LiveGamePanelProps {
   };
 }
 
-export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
+export function LiveGamePanel({ currentPuuid, region, gameData }: LiveGamePanelProps) {
   const [gameTime, setGameTime] = useState(0);
 
   // Update game time every second
@@ -65,14 +69,10 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
         animate={{ opacity: 1, y: 0 }}
         className="relative overflow-hidden rounded-2xl border border-[#f59e0b]/30 bg-gradient-to-br from-[#f59e0b]/10 via-card to-card/80 p-6"
       >
-        {/* Animated glow */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-[#f59e0b]/10 rounded-full blur-3xl animate-pulse" />
 
         <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {/* Live pulse indicator */}
-            <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-[#f59e0b]/20 border border-[#f59e0b]/30">
-              <span className="absolute inline-flex h-full w-full rounded-xl bg-[#f59e0b] opacity-20 animate-ping" />
+            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-[#f59e0b]/20 border border-[#f59e0b]/30">
               <Swords className="w-6 h-6 text-[#f59e0b]" />
             </div>
 
@@ -80,7 +80,7 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold">Live Game</h2>
                 <Badge variant="outline" className="border-[#f59e0b]/30 text-[#f59e0b]">
-                  {gameData.gameMode}
+                  {getQueueInfo(gameData.queueId).shortName}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
@@ -90,7 +90,7 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
           </div>
 
           {/* Game timer */}
-          <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-background/50 border border-border/30">
+          <div className="flex items-center gap-3">
             <Clock className="w-5 h-5 text-[#f59e0b]" />
             <div>
               <div className="text-2xl font-bold font-mono">{formattedTime}</div>
@@ -129,8 +129,9 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
             <div className="space-y-2">
               {blueTeam.map((participant, idx) => (
                 <ParticipantCard
-                  key={participant.puuid}
+                  key={participant.puuid || `blue-${idx}`}
                   participant={participant}
+                  region={region}
                   isCurrentPlayer={participant.puuid === currentPuuid}
                   teamColor="blue"
                   delay={0.2 + idx * 0.05}
@@ -167,8 +168,9 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
             <div className="space-y-2">
               {redTeam.map((participant, idx) => (
                 <ParticipantCard
-                  key={participant.puuid}
+                  key={participant.puuid || `red-${idx}`}
                   participant={participant}
+                  region={region}
                   isCurrentPlayer={participant.puuid === currentPuuid}
                   teamColor="red"
                   delay={0.2 + idx * 0.05}
@@ -184,29 +186,36 @@ export function LiveGamePanel({ currentPuuid, gameData }: LiveGamePanelProps) {
 
 function ParticipantCard({
   participant,
+  region,
   isCurrentPlayer,
   teamColor,
   delay,
 }: {
   participant: LiveGamePanelProps['gameData']['participants'][0];
+  region: string;
   isCurrentPlayer: boolean;
   teamColor: 'blue' | 'red';
   delay: number;
 }) {
   const championName = participant.championName || `Champion${participant.championId}`;
+  const isStreamerMode = !participant.tagLine;
+  const profileUrl = `/${region}/${encodeURIComponent(`${participant.gameName}-${participant.tagLine}`)}`;
 
-  return (
+  const cardContent = (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, delay }}
       className={cn(
         'flex items-center gap-3 p-3 rounded-xl transition-all',
+        isStreamerMode ? 'opacity-70' : 'cursor-pointer',
         isCurrentPlayer
           ? teamColor === 'blue'
-            ? 'bg-blue-500/20 ring-1 ring-blue-500/40'
-            : 'bg-red-500/20 ring-1 ring-red-500/40'
-          : 'bg-background/30 hover:bg-background/50'
+            ? 'bg-blue-500/20 ring-1 ring-blue-500/40 hover:bg-blue-500/30'
+            : 'bg-red-500/20 ring-1 ring-red-500/40 hover:bg-red-500/30'
+          : isStreamerMode
+            ? 'bg-background/30'
+            : 'bg-background/30 hover:bg-background/50'
       )}
     >
       {/* Champion icon */}
@@ -234,6 +243,12 @@ function ParticipantCard({
         )}
       </div>
 
+      {/* Role icon */}
+      {participant.role && (() => {
+        const RoleIcon = getRoleIcon(participant.role);
+        return <RoleIcon className="w-5 h-5 text-muted-foreground" />;
+      })()}
+
       {/* Player info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -243,7 +258,9 @@ function ParticipantCard({
           )}>
             {participant.gameName}
           </span>
-          <span className="text-xs text-muted-foreground">#{participant.tagLine}</span>
+          {participant.tagLine && (
+            <span className="text-xs text-muted-foreground">#{participant.tagLine}</span>
+          )}
         </div>
         <div className="text-xs text-muted-foreground">{championName}</div>
       </div>
@@ -264,4 +281,10 @@ function ParticipantCard({
       )}
     </motion.div>
   );
+
+  if (isStreamerMode) {
+    return cardContent;
+  }
+
+  return <Link href={profileUrl}>{cardContent}</Link>;
 }

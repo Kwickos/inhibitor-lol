@@ -2,7 +2,56 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMatchIds, getMatch, storePlayerMatch } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError } from '@/lib/riot-api';
-import type { MatchSummary } from '@/types/riot';
+import type { MatchSummary, Match } from '@/types/riot';
+
+// Prefetch match data for frequent teammates (fire and forget)
+async function prefetchTeammateData(
+  matches: Match[],
+  currentPuuid: string,
+  region: RegionKey
+): Promise<void> {
+  try {
+    // Count teammate appearances
+    const teammateCount = new Map<string, { count: number; gameName?: string; tagLine?: string }>();
+
+    for (const match of matches) {
+      const currentParticipant = match.info.participants.find(p => p.puuid === currentPuuid);
+      if (!currentParticipant) continue;
+
+      // Get teammates (same team)
+      const teammates = match.info.participants.filter(
+        p => p.puuid !== currentPuuid && p.teamId === currentParticipant.teamId
+      );
+
+      for (const teammate of teammates) {
+        const existing = teammateCount.get(teammate.puuid) || { count: 0 };
+        teammateCount.set(teammate.puuid, {
+          count: existing.count + 1,
+          gameName: teammate.riotIdGameName || teammate.summonerName,
+          tagLine: teammate.riotIdTagline,
+        });
+      }
+    }
+
+    // Get top 3 most frequent teammates
+    const topTeammates = Array.from(teammateCount.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 3)
+      .filter(([_, data]) => data.count >= 2); // Only prefetch if played 2+ games together
+
+    // Prefetch their match IDs (fire and forget, don't await)
+    for (const [puuid] of topTeammates) {
+      getMatchIds(puuid, region, 10).catch(() => {
+        // Silently ignore errors - this is just a prefetch
+      });
+    }
+
+    console.log(`Prefetched data for ${topTeammates.length} frequent teammates`);
+  } catch (error) {
+    // Silently ignore prefetch errors
+    console.warn('Teammate prefetch error:', error);
+  }
+}
 
 interface Params {
   params: Promise<{
@@ -59,9 +108,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     const paginatedIds = matchIds.slice(start, start + count);
 
     // Fetch match details in parallel (limit concurrency)
+    const fullMatches: Match[] = [];
+
     const matchPromises = paginatedIds.map(async (matchId) => {
       try {
         const match = await getMatch(matchId, region);
+        fullMatches.push(match); // Keep full match for prefetch
 
         // Store player match data for champion stats (fire and forget)
         storePlayerMatch(puuid, match).catch(console.warn);
@@ -92,6 +144,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     });
 
     const matchSummaries = (await Promise.all(matchPromises)).filter(Boolean);
+
+    // Prefetch frequent teammates' data in background (fire and forget)
+    prefetchTeammateData(fullMatches, puuid, region).catch(() => {});
 
     return NextResponse.json({
       matches: matchSummaries,

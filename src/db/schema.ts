@@ -63,6 +63,20 @@ export const ranks = sqliteTable(
   })
 );
 
+// Champion position rates table - Aggregated from match data
+export const championPositionRates = sqliteTable(
+  'champion_position_rates',
+  {
+    championId: integer('champion_id').notNull(),
+    position: text('position').notNull(), // TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY
+    gamesPlayed: integer('games_played').notNull().default(0),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.championId, table.position] }),
+  })
+);
+
 // Types for insertions
 export type InsertSummoner = typeof summoners.$inferInsert;
 export type SelectSummoner = typeof summoners.$inferSelect;
@@ -75,3 +89,6 @@ export type SelectPlayerMatch = typeof playerMatches.$inferSelect;
 
 export type InsertRank = typeof ranks.$inferInsert;
 export type SelectRank = typeof ranks.$inferSelect;
+
+export type InsertChampionPositionRate = typeof championPositionRates.$inferInsert;
+export type SelectChampionPositionRate = typeof championPositionRates.$inferSelect;

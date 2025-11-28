@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
-import { Users } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getProfileIconUrl } from '@/lib/riot-api';
 import { cn } from '@/lib/utils';
@@ -62,25 +61,19 @@ export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
     >
       <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-gradient-to-br from-card via-card to-card/80">
         {/* Background decoration */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl" />
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl" />
 
         <div className="relative p-5">
           {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Duo Partners
-            </h3>
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
-              <Users className="w-3 h-3 text-blue-400" />
-              <span className="text-[10px] font-medium text-blue-400">{partners.length}</span>
-            </div>
-          </div>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+            Duo Partners
+          </h3>
 
           {/* Partner List */}
           <div className="space-y-2">
             {partners.map((partner, index) => (
-              <DuoPartnerRow key={partner.puuid} partner={partner} index={index} isFirst={index === 0} />
+              <DuoPartnerRow key={partner.puuid} partner={partner} index={index} />
             ))}
           </div>
         </div>
@@ -89,7 +82,7 @@ export function DuoPartnersCard({ puuid, region }: DuoPartnersCardProps) {
   );
 }
 
-function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index: number; isFirst: boolean }) {
+function DuoPartnerRow({ partner, index }: { partner: DuoPartner; index: number }) {
   const winRateColor = partner.winRate >= 60 ? 'text-primary' : partner.winRate >= 50 ? 'text-foreground' : 'text-destructive';
 
   return (
@@ -97,12 +90,7 @@ function DuoPartnerRow({ partner, index, isFirst }: { partner: DuoPartner; index
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.2, delay: index * 0.05 }}
-      className={cn(
-        'relative flex items-center gap-3 p-3 rounded-xl transition-colors',
-        isFirst
-          ? 'bg-gradient-to-r from-blue-500/10 via-blue-500/5 to-transparent border border-blue-500/20'
-          : 'hover:bg-muted/30'
-      )}
+      className="relative flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted/30"
     >
       {/* Profile icon */}
       <div className="relative">

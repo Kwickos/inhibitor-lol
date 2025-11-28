@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1764287322951,
+      "tag": "0000_exotic_millenium_guard",
+      "breakpoints": true
+    }
+  ]
+}

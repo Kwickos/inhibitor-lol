@@ -59,10 +59,12 @@ interface SummonerData {
     queueId: number;
     participants: Array<{
       championId: number;
+      championName?: string;
       teamId: number;
       gameName: string;
       tagLine: string;
       puuid: string;
+      role?: string;
       rank?: {
         tier: string;
         rank: string;
@@ -203,12 +205,7 @@ export default function SummonerPage({ params }: PageProps) {
               <TabButton
                 active={activeTab === 'livegame'}
                 onClick={() => setActiveTab('livegame')}
-                icon={
-                  <div className="relative">
-                    <Radio className="h-4 w-4" />
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f59e0b] rounded-full animate-pulse" />
-                  </div>
-                }
+                icon={<Radio className="h-4 w-4" />}
                 label="Live Game"
                 highlight
               />
@@ -240,6 +237,7 @@ export default function SummonerPage({ params }: PageProps) {
             >
               <LiveGamePanel
                 currentPuuid={data.account.puuid}
+                region={region}
                 gameData={data.liveGame}
               />
             </motion.div>
