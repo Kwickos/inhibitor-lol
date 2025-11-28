@@ -791,122 +791,291 @@ function identifyInsights(
 
   // Get main role
   const mainRole = Object.entries(roleStats).sort((a, b) => b[1].games - a[1].games)[0];
+  const mainRoleName = mainRole?.[0] || 'MIDDLE';
   const mainRoleStats = mainRole?.[1];
   const benchmark = mainRoleStats?.benchmarkComparison;
 
-  if (benchmark) {
-    // KDA Analysis
-    if (benchmark.kda.rating === 'excellent' || benchmark.kda.rating === 'good') {
-      strengths.push({
-        category: 'combat',
-        title: 'Strong KDA',
-        description: `Your KDA of ${overallStats.avgKDA.toFixed(2)} is ${benchmark.kda.rating === 'excellent' ? 'excellent' : 'above average'} for your role.`,
-        value: overallStats.avgKDA,
-        comparison: `Top ${100 - benchmark.kda.percentile}% of players`,
-        importance: 'high',
-      });
-    } else if (benchmark.kda.rating === 'below_average' || benchmark.kda.rating === 'poor') {
-      weaknesses.push({
-        category: 'combat',
-        title: 'Low KDA',
-        description: `Your KDA of ${overallStats.avgKDA.toFixed(2)} is below average. Focus on reducing deaths.`,
-        value: overallStats.avgKDA,
-        comparison: `Target: ${benchmark.kda.benchmark.toFixed(2)}`,
-        importance: 'high',
-      });
-    }
+  // Analyze death patterns
+  const deathAnalysis = analyzeDeathPatterns(playerMatches);
 
-    // CS Analysis
-    if (benchmark.csPerMin.rating === 'excellent' || benchmark.csPerMin.rating === 'good') {
-      strengths.push({
-        category: 'farming',
-        title: 'Excellent Farming',
-        description: `${overallStats.avgCSPerMin.toFixed(1)} CS/min is great for your role.`,
-        value: overallStats.avgCSPerMin,
-        comparison: `Top ${100 - benchmark.csPerMin.percentile}% of players`,
-        importance: 'high',
-      });
-    } else if (benchmark.csPerMin.rating === 'below_average' || benchmark.csPerMin.rating === 'poor') {
-      weaknesses.push({
-        category: 'farming',
-        title: 'Low CS',
-        description: `${overallStats.avgCSPerMin.toFixed(1)} CS/min is below average. Practice last-hitting.`,
-        value: overallStats.avgCSPerMin,
-        comparison: `Target: ${benchmark.csPerMin.benchmark.toFixed(1)} CS/min`,
-        importance: 'high',
-      });
-    }
+  // Analyze early game
+  const earlyGameAnalysis = analyzeEarlyGame(playerMatches, mainRoleName);
 
-    // Vision Analysis
-    if (benchmark.visionScore.rating === 'excellent' || benchmark.visionScore.rating === 'good') {
-      strengths.push({
-        category: 'vision',
-        title: 'Great Vision Control',
-        description: `Your vision score of ${overallStats.avgVisionPerMin.toFixed(2)}/min shows strong map awareness.`,
-        value: overallStats.avgVisionPerMin,
-        comparison: `Top ${100 - benchmark.visionScore.percentile}% of players`,
-        importance: 'medium',
-      });
-    } else if (benchmark.visionScore.rating === 'below_average' || benchmark.visionScore.rating === 'poor') {
-      weaknesses.push({
-        category: 'vision',
-        title: 'Low Vision Score',
-        description: `Your vision score is below average. Buy more control wards and use trinkets.`,
-        value: overallStats.avgVisionPerMin,
-        comparison: `Target: ${benchmark.visionScore.benchmark.toFixed(2)}/min`,
-        importance: 'medium',
-      });
-    }
+  // ========== ROLE-SPECIFIC INSIGHTS ==========
 
-    // Kill Participation
-    if (benchmark.killParticipation.rating === 'excellent' || benchmark.killParticipation.rating === 'good') {
+  if (mainRoleName === 'JUNGLE') {
+    // Jungle-specific analysis
+    if (overallStats.avgKillParticipation > 65) {
       strengths.push({
         category: 'teamplay',
-        title: 'High Kill Participation',
-        description: `${overallStats.avgKillParticipation.toFixed(0)}% KP shows great team involvement.`,
+        title: 'Présence jungle oppressante',
+        description: `Avec ${overallStats.avgKillParticipation.toFixed(0)}% de KP, tu es présent sur toutes les actions. Tu comprends quand roam et quand farmer.`,
         value: overallStats.avgKillParticipation,
-        importance: 'medium',
+        importance: 'high',
       });
-    } else if (benchmark.killParticipation.rating === 'below_average' || benchmark.killParticipation.rating === 'poor') {
+    } else if (overallStats.avgKillParticipation < 50) {
       weaknesses.push({
         category: 'teamplay',
-        title: 'Low Kill Participation',
-        description: `${overallStats.avgKillParticipation.toFixed(0)}% KP is low. Join more team fights.`,
+        title: 'Jungle fantôme',
+        description: `${overallStats.avgKillParticipation.toFixed(0)}% de KP, tu farm ta jungle pendant que tes laners se font dive. Track les timers adverses et gank quand tes lanes ont setup la wave.`,
         value: overallStats.avgKillParticipation,
-        comparison: `Target: ${(benchmark.killParticipation.benchmark * 100).toFixed(0)}%`,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgDragonTakedowns && overallStats.avgDragonTakedowns > 2) {
+      strengths.push({
+        category: 'objectives',
+        title: 'Dragon Soul focus',
+        description: `${overallStats.avgDragonTakedowns.toFixed(1)} dragons/game en moyenne. Tu priorises bien les objectifs et tu setup la vision avant les spawns.`,
+        value: overallStats.avgDragonTakedowns,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgVisionPerMin < 0.8) {
+      weaknesses.push({
+        category: 'vision',
+        title: 'Jungle sans vision',
+        description: `${overallStats.avgVisionPerMin.toFixed(2)} vision/min c'est insuffisant. Place des pinks dans la jungle ennemie, sweep les objectifs 1min avant spawn.`,
+        value: overallStats.avgVisionPerMin,
         importance: 'medium',
       });
     }
   }
 
-  // Death analysis
-  if (overallStats.avgDeaths > 5) {
+  if (mainRoleName === 'UTILITY') {
+    // Support-specific analysis
+    if (overallStats.avgVisionPerMin > 2.0) {
+      strengths.push({
+        category: 'vision',
+        title: 'Vision de pro',
+        description: `${overallStats.avgVisionPerMin.toFixed(2)} vision/min, ta vision contrôle la map. Tu ward les flancs en teamfight et tu track le jungler adverse.`,
+        value: overallStats.avgVisionPerMin,
+        importance: 'high',
+      });
+    } else if (overallStats.avgVisionPerMin < 1.5) {
+      weaknesses.push({
+        category: 'vision',
+        title: 'Support sans wards',
+        description: `${overallStats.avgVisionPerMin.toFixed(2)} vision/min pour un support c'est critique. Utilise ton item support + pinks. Ward river level 1, tribush après le push.`,
+        value: overallStats.avgVisionPerMin,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgKillParticipation > 70) {
+      strengths.push({
+        category: 'teamplay',
+        title: 'Support omniprésent',
+        description: `${overallStats.avgKillParticipation.toFixed(0)}% KP, tu es partout. Tes roams mid sont timés et tu suis les engages de ton jungler.`,
+        value: overallStats.avgKillParticipation,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgDeaths > 5) {
+      weaknesses.push({
+        category: 'survivability',
+        title: 'Support kamikaze',
+        description: `${overallStats.avgDeaths.toFixed(1)} morts/game, tu engage sans backup ou tu facecheck sans vision. En tant que support, ta mort = ton ADC est solo.`,
+        value: overallStats.avgDeaths,
+        importance: 'high',
+      });
+    }
+  }
+
+  if (mainRoleName === 'BOTTOM') {
+    // ADC-specific analysis
+    if (benchmark?.csPerMin.rating === 'excellent' || (overallStats.avgCSPerMin > 8.5)) {
+      strengths.push({
+        category: 'farming',
+        title: 'Farming d\'ADC clean',
+        description: `${overallStats.avgCSPerMin.toFixed(1)} CS/min, tu last-hit bien et tu catch les waves sides. Tu atteins tes power spikes en temps et en heure.`,
+        value: overallStats.avgCSPerMin,
+        importance: 'high',
+      });
+    } else if (overallStats.avgCSPerMin < 7) {
+      weaknesses.push({
+        category: 'farming',
+        title: 'CS d\'ADC insuffisant',
+        description: `${overallStats.avgCSPerMin.toFixed(1)} CS/min c'est 1.5 items de retard à 25min. Travaille le last-hit sous tour (2 auto tower + 1 auto, ou 1 auto + tower + 1 auto pour les casters).`,
+        value: overallStats.avgCSPerMin,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgDamageShare > 28) {
+      strengths.push({
+        category: 'combat',
+        title: 'Carry damage',
+        description: `${overallStats.avgDamageShare.toFixed(0)}% du damage de ton équipe. Tu DPS en teamfight sans te faire OS, tu kite bien.`,
+        value: overallStats.avgDamageShare,
+        importance: 'high',
+      });
+    } else if (overallStats.avgDamageShare < 22) {
+      weaknesses.push({
+        category: 'combat',
+        title: 'ADC sans damage',
+        description: `${overallStats.avgDamageShare.toFixed(0)}% damage share pour un ADC c'est trop peu. Tu te positionnes trop loin ou tu arrive trop tard aux fights. Stay max range et auto le plus proche.`,
+        value: overallStats.avgDamageShare,
+        importance: 'high',
+      });
+    }
+
+    if (deathAnalysis.avgDeathsFirst15Min > 2) {
+      weaknesses.push({
+        category: 'survivability',
+        title: 'Laning phase suicidaire',
+        description: `${deathAnalysis.avgDeathsFirst15Min.toFixed(1)} morts avant 15min. Tu te fais gank ou tu prends des trades perdants. Freeze devant ta tour si tu es behind, ward le tribush.`,
+        value: deathAnalysis.avgDeathsFirst15Min,
+        importance: 'high',
+      });
+    }
+  }
+
+  if (mainRoleName === 'MIDDLE') {
+    // Mid-specific analysis
+    if (overallStats.avgSoloKills && overallStats.avgSoloKills > 1.5) {
+      strengths.push({
+        category: 'combat',
+        title: 'Lane kingdom',
+        description: `${overallStats.avgSoloKills.toFixed(1)} solo kills/game, tu gagnes tes 1v1 et tu connais les power spikes de ton champ. Tu punish les erreurs de position.`,
+        value: overallStats.avgSoloKills,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.firstBloodRate > 25) {
+      strengths.push({
+        category: 'aggression',
+        title: 'First blood mid',
+        description: `${overallStats.firstBloodRate.toFixed(0)}% first blood, tu abuse les level 2/3 spikes ou tu aide ton jungler pour l'invade. Early lead = snowball.`,
+        value: overallStats.firstBloodRate,
+        importance: 'medium',
+      });
+    }
+
+    if (overallStats.avgCSPerMin < 7.5) {
+      weaknesses.push({
+        category: 'farming',
+        title: 'CS de mid insuffisant',
+        description: `${overallStats.avgCSPerMin.toFixed(1)} CS/min, tu roam trop sans push ou tu rates trop de last-hit. Push la wave PUIS roam, sinon tu perds XP et gold.`,
+        value: overallStats.avgCSPerMin,
+        importance: 'high',
+      });
+    }
+  }
+
+  if (mainRoleName === 'TOP') {
+    // Top-specific analysis
+    if (overallStats.avgSoloKills && overallStats.avgSoloKills > 1.5) {
+      strengths.push({
+        category: 'combat',
+        title: 'Island 1v1 king',
+        description: `${overallStats.avgSoloKills.toFixed(1)} solo kills/game en top. Tu connais les matchups et tu sais quand all-in. Ta wave management force les dives.`,
+        value: overallStats.avgSoloKills,
+        importance: 'high',
+      });
+    }
+
+    if (overallStats.avgTurretPlatesTaken && overallStats.avgTurretPlatesTaken > 1.5) {
+      strengths.push({
+        category: 'objectives',
+        title: 'Plate collector',
+        description: `${overallStats.avgTurretPlatesTaken.toFixed(1)} plates/game, tu punis les backs adverses et tu convertis tes kills en objectifs.`,
+        value: overallStats.avgTurretPlatesTaken,
+        importance: 'medium',
+      });
+    }
+
+    if (overallStats.avgKillParticipation < 45) {
+      weaknesses.push({
+        category: 'teamplay',
+        title: 'Top island permanent',
+        description: `${overallStats.avgKillParticipation.toFixed(0)}% KP, tu splitpush H24 sans TP ou tu ne suis pas les fights. Garde ton TP pour les dragons, join les teamfights mid-game.`,
+        value: overallStats.avgKillParticipation,
+        importance: 'medium',
+      });
+    }
+  }
+
+  // ========== GENERAL INSIGHTS ==========
+
+  // Solo kills analysis
+  if (overallStats.avgSoloKills !== undefined) {
+    if (overallStats.avgSoloKills < 0.5 && mainRoleName !== 'UTILITY') {
+      weaknesses.push({
+        category: 'combat',
+        title: 'Pas de pression 1v1',
+        description: `${overallStats.avgSoloKills.toFixed(1)} solo kill/game. Tu ne trade pas assez ou tu ne connais pas tes windows d'all-in. Apprends les power spikes de ton champion.`,
+        value: overallStats.avgSoloKills,
+        importance: 'medium',
+      });
+    }
+  }
+
+  // Skillshot analysis
+  if (overallStats.avgSkillshotsDodged !== undefined && overallStats.avgSkillshotsHit !== undefined) {
+    const dodgeRatio = overallStats.avgSkillshotsDodged / (overallStats.avgSkillshotsHit + 1);
+    if (dodgeRatio > 1.5) {
+      strengths.push({
+        category: 'combat',
+        title: 'Esquive de challenger',
+        description: `Tu dodge ${overallStats.avgSkillshotsDodged.toFixed(0)} skillshots/game. Ton spacing et tes sidesteps sont propres, tu force les cooldowns adverses.`,
+        value: overallStats.avgSkillshotsDodged,
+        importance: 'medium',
+      });
+    } else if (dodgeRatio < 0.7 && overallStats.avgSkillshotsDodged < 20) {
+      weaknesses.push({
+        category: 'combat',
+        title: 'Skillshot magnet',
+        description: `Tu te prends tout. Arrête de move en ligne droite, side-step après chaque CS, anticipe les patterns ennemis (Lux bind après E, Blitz hook après W).`,
+        value: overallStats.avgSkillshotsDodged,
+        importance: 'medium',
+      });
+    }
+  }
+
+  // Control wards analysis
+  if (overallStats.avgControlWardsPlaced !== undefined) {
+    if (overallStats.avgControlWardsPlaced > 3) {
+      strengths.push({
+        category: 'vision',
+        title: 'Pink ward addict',
+        description: `${overallStats.avgControlWardsPlaced.toFixed(1)} control wards/game. Tu secure la vision pour ton équipe et tu deny les flanks ennemis.`,
+        value: overallStats.avgControlWardsPlaced,
+        importance: 'medium',
+      });
+    } else if (overallStats.avgControlWardsPlaced < 1.5 && mainRoleName !== 'BOTTOM') {
+      weaknesses.push({
+        category: 'vision',
+        title: 'Zéro pink',
+        description: `${overallStats.avgControlWardsPlaced.toFixed(1)} control wards/game. 75g c'est rien, buy un pink à chaque back. Met le dans un bush permanent (pixel brush, tribush).`,
+        value: overallStats.avgControlWardsPlaced,
+        importance: 'medium',
+      });
+    }
+  }
+
+  // Death timing analysis
+  if (deathAnalysis.avgDeathsFirst15Min > 3) {
     weaknesses.push({
       category: 'survivability',
-      title: 'High Death Count',
-      description: `Averaging ${overallStats.avgDeaths.toFixed(1)} deaths per game. Focus on positioning and map awareness.`,
-      value: overallStats.avgDeaths,
-      comparison: 'Target: < 4 deaths/game',
+      title: 'Early game deaths',
+      description: `${deathAnalysis.avgDeathsFirst15Min.toFixed(1)} morts avant 15min en moyenne. Tu te fais gank, tu force des trades perdants, ou tu overstay. Respect le fog of war.`,
+      value: deathAnalysis.avgDeathsFirst15Min,
       importance: 'high',
-    });
-  } else if (overallStats.avgDeaths < 3) {
-    strengths.push({
-      category: 'survivability',
-      title: 'Low Deaths',
-      description: `Only ${overallStats.avgDeaths.toFixed(1)} deaths per game shows excellent survivability.`,
-      value: overallStats.avgDeaths,
-      importance: 'medium',
     });
   }
 
-  // First blood rate
-  if (overallStats.firstBloodRate > 30) {
-    strengths.push({
-      category: 'aggression',
-      title: 'First Blood Threat',
-      description: `Involved in first blood ${overallStats.firstBloodRate.toFixed(0)}% of games.`,
-      value: overallStats.firstBloodRate,
-      importance: 'low',
+  if (deathAnalysis.deathsInLostGames > deathAnalysis.deathsInWonGames * 1.8) {
+    weaknesses.push({
+      category: 'consistency',
+      title: 'Tilt deaths',
+      description: `${deathAnalysis.deathsInLostGames.toFixed(1)} morts dans les défaites vs ${deathAnalysis.deathsInWonGames.toFixed(1)} dans les wins. Tu int quand tu es behind. Accepte de farmer safe et wait les erreurs adverses.`,
+      value: deathAnalysis.deathsInLostGames,
+      importance: 'high',
     });
   }
 
@@ -915,22 +1084,111 @@ function identifyInsights(
   if (winRateVariance < 0.3) {
     strengths.push({
       category: 'consistency',
-      title: 'Consistent Performance',
-      description: 'Your performance is stable across games.',
+      title: 'Performance stable',
+      description: 'Ta performance est régulière. Tu as une baseline solide et tu tiltes pas. C\'est la clé pour climb.',
       value: winRateVariance,
       importance: 'medium',
     });
-  } else if (winRateVariance > 0.5) {
+  } else if (winRateVariance > 0.6) {
     weaknesses.push({
       category: 'consistency',
-      title: 'Inconsistent Performance',
-      description: 'Your performance varies significantly between games.',
+      title: 'Coinflip player',
+      description: 'Un game tu carry, l\'autre tu int. Stick à 2-3 champs max, arrête de play tilté, et focus les fondamentaux même quand tu es fed.',
       value: winRateVariance,
-      importance: 'medium',
+      importance: 'high',
     });
   }
 
+  // Early game gold analysis
+  if (earlyGameAnalysis.avgLaneMinions10 !== undefined) {
+    if (earlyGameAnalysis.avgLaneMinions10 > 80 && mainRoleName !== 'JUNGLE' && mainRoleName !== 'UTILITY') {
+      strengths.push({
+        category: 'farming',
+        title: 'Early CS on point',
+        description: `${earlyGameAnalysis.avgLaneMinions10.toFixed(0)} CS à 10min, tu last-hit proprement et tu perds pas de CS aux trades ou backs mal timés.`,
+        value: earlyGameAnalysis.avgLaneMinions10,
+        importance: 'high',
+      });
+    } else if (earlyGameAnalysis.avgLaneMinions10 < 60 && mainRoleName !== 'JUNGLE' && mainRoleName !== 'UTILITY') {
+      weaknesses.push({
+        category: 'farming',
+        title: 'CS@10 trop bas',
+        description: `${earlyGameAnalysis.avgLaneMinions10.toFixed(0)} CS à 10min (~107 possible). Tu rates des last-hit, tu back mal, ou tu te fais zone. Pratique en tool et focus 1 minion à la fois.`,
+        value: earlyGameAnalysis.avgLaneMinions10,
+        importance: 'high',
+      });
+    }
+  }
+
   return { strengths, weaknesses };
+}
+
+// Analyze death patterns from match data
+function analyzeDeathPatterns(playerMatches: PlayerMatch[]): {
+  avgDeathsFirst15Min: number;
+  deathsInWonGames: number;
+  deathsInLostGames: number;
+} {
+  let totalDeathsFirst15 = 0;
+  let deathsWins = 0;
+  let deathsLosses = 0;
+  let winsCount = 0;
+  let lossesCount = 0;
+
+  for (const pm of playerMatches) {
+    const p = pm.participant;
+
+    // Estimate early deaths based on total deaths and game duration
+    // Games < 20min: assume most deaths are "early"
+    // Games > 30min: assume ~40% of deaths are early
+    const gameDurationMin = pm.gameDuration / 60;
+    const earlyDeathRatio = gameDurationMin < 20 ? 0.8 : gameDurationMin < 30 ? 0.5 : 0.35;
+    totalDeathsFirst15 += p.deaths * earlyDeathRatio;
+
+    if (p.win) {
+      deathsWins += p.deaths;
+      winsCount++;
+    } else {
+      deathsLosses += p.deaths;
+      lossesCount++;
+    }
+  }
+
+  return {
+    avgDeathsFirst15Min: totalDeathsFirst15 / playerMatches.length,
+    deathsInWonGames: winsCount > 0 ? deathsWins / winsCount : 0,
+    deathsInLostGames: lossesCount > 0 ? deathsLosses / lossesCount : 0,
+  };
+}
+
+// Analyze early game performance
+function analyzeEarlyGame(playerMatches: PlayerMatch[], role: string): {
+  avgLaneMinions10?: number;
+  avgEarlyGoldAdv?: number;
+} {
+  let totalLaneMinions = 0;
+  let laneMinionsCount = 0;
+  let totalGoldAdv = 0;
+  let goldAdvCount = 0;
+
+  for (const pm of playerMatches) {
+    const challenges = pm.participant.challenges;
+    if (challenges) {
+      if (challenges.laneMinionsFirst10Minutes !== undefined) {
+        totalLaneMinions += challenges.laneMinionsFirst10Minutes;
+        laneMinionsCount++;
+      }
+      if (challenges.earlyLaningPhaseGoldExpAdvantage !== undefined) {
+        totalGoldAdv += challenges.earlyLaningPhaseGoldExpAdvantage;
+        goldAdvCount++;
+      }
+    }
+  }
+
+  return {
+    avgLaneMinions10: laneMinionsCount > 0 ? totalLaneMinions / laneMinionsCount : undefined,
+    avgEarlyGoldAdv: goldAdvCount > 0 ? totalGoldAdv / goldAdvCount : undefined,
+  };
 }
 
 function generateImprovements(
@@ -940,40 +1198,81 @@ function generateImprovements(
 ): ImprovementSuggestion[] {
   const improvements: ImprovementSuggestion[] = [];
 
+  // Get main role for role-specific tips
+  const mainRole = Object.entries(roleStats).sort((a, b) => b[1].games - a[1].games)[0];
+  const mainRoleName = mainRole?.[0] || 'MIDDLE';
+
   for (const weakness of weaknesses) {
     let suggestion: ImprovementSuggestion | null = null;
 
     switch (weakness.category) {
       case 'combat':
-        suggestion = {
-          priority: 1,
-          category: 'combat',
-          title: 'Improve KDA',
-          description: 'Focus on reducing deaths while maintaining kill participation.',
-          currentValue: overallStats.avgKDA,
-          targetValue: 2.5,
-          tips: [
-            'Wait for cooldowns before engaging',
-            'Track enemy key abilities',
-            'Position safely in team fights',
-            'Avoid chasing kills too deep',
-          ],
-        };
+        if (weakness.title.includes('solo kill') || weakness.title.includes('1v1')) {
+          suggestion = {
+            priority: 1,
+            category: 'combat',
+            title: 'Apprends à gagner tes trades',
+            description: 'La pression 1v1 te permet de deny CS, roam, et créer des leads.',
+            currentValue: overallStats.avgSoloKills || 0,
+            targetValue: 1.5,
+            tips: [
+              'Apprends les power spikes de ton champ: Level 2 (2 spells), Level 3, Level 6, items terminés',
+              'Trade quand l\'ennemi last-hit (il est en animation)',
+              'Track les cooldowns ennemis et all-in quand ils n\'ont plus de spells',
+              'Utilise les bushes pour drop l\'aggro des minions pendant les trades',
+            ],
+          };
+        } else if (weakness.title.includes('damage')) {
+          suggestion = {
+            priority: 1,
+            category: 'combat',
+            title: 'Output plus de damage en fight',
+            description: 'Ton damage share est trop bas, tu ne contribues pas assez aux fights.',
+            currentValue: overallStats.avgDamageShare,
+            targetValue: mainRoleName === 'BOTTOM' ? 28 : 22,
+            tips: [
+              'En ADC: auto le target le plus proche safe, pas besoin de focus le carry',
+              'Arrive aux fights AVANT qu\'ils commencent, pas après',
+              'Utilise tes spells de poke avant que le fight commence',
+              'Ne garde pas tes ult trop longtemps, un ult utilisé > un ult gardé "au cas où"',
+            ],
+          };
+        } else {
+          suggestion = {
+            priority: 1,
+            category: 'combat',
+            title: 'Améliore tes mechanics',
+            description: 'Tu prends trop de skillshots et tu ne connais pas tes limites.',
+            currentValue: overallStats.avgKDA,
+            targetValue: 3.0,
+            tips: [
+              'Side-step après chaque auto/CS - ne reste jamais statique',
+              'Anticipe les patterns: Lux E puis Q, Thresh W puis Q, Blitz W puis Q',
+              'En lane, reste derrière tes minions pour block les skillshots',
+              'Pratique le kiting en Practice Tool contre des dummies',
+            ],
+          };
+        }
         break;
 
       case 'farming':
         suggestion = {
           priority: 1,
           category: 'farming',
-          title: 'Improve CS',
-          description: 'Better last-hitting will significantly increase your gold income.',
+          title: 'Master le last-hitting',
+          description: '15 CS = 1 kill en gold. +1 CS/min = 300g de plus à 20min.',
           currentValue: overallStats.avgCSPerMin,
-          targetValue: 7.5,
-          tips: [
-            'Practice last-hitting in practice tool',
-            'Learn wave manipulation (freeze, slow push, fast push)',
-            'Don\'t miss CS while trading',
-            'Catch side waves after laning phase',
+          targetValue: mainRoleName === 'JUNGLE' ? 5.5 : 8.0,
+          tips: mainRoleName === 'JUNGLE' ? [
+            'Full clear tes camps, ne laisse pas de mini monsters',
+            'Kite les camps pour réduire les dégâts pris',
+            'Prends les waves quand tes laners back (avec leur accord)',
+            'Après un gank réussi, push la wave avec ton laner pour le deny',
+          ] : [
+            'Last-hit sous tour: Melee = 2 tower hits + 1 auto, Caster = 1 auto + tower + 1 auto',
+            'Pratique 10min/jour en Practice Tool: objectif 100 CS à 10min',
+            'Ne trade PAS si tu vas rater un canon (20g + XP important)',
+            'Après 15min, catch les waves sides - 1 wave = 125g',
           ],
         };
         break;
@@ -982,15 +1281,25 @@ function generateImprovements(
         suggestion = {
           priority: 2,
           category: 'vision',
-          title: 'Improve Vision Control',
-          description: 'Better vision leads to better map awareness and fewer deaths.',
+          title: 'Contrôle la vision',
+          description: 'La vision = l\'information. L\'information = des décisions smart.',
           currentValue: overallStats.avgVisionPerMin,
-          targetValue: 1.0,
-          tips: [
-            'Buy a control ward every back',
-            'Use trinket on cooldown',
-            'Ward before objectives spawn',
-            'Clear enemy vision before fights',
+          targetValue: mainRoleName === 'UTILITY' ? 2.0 : 1.0,
+          tips: mainRoleName === 'UTILITY' ? [
+            'Ward la river level 1 pour spot l\'invade/le path du jungler',
+            'Après le push level 3, ward le tribush ou derrière le dragon pit',
+            'Avant dragon/baron: sweep + ward les flanks 1min AVANT le spawn',
+            'Place ton pink dans un bush permanent (pixel brush mid, tribush bot)',
+          ] : mainRoleName === 'JUNGLE' ? [
+            'Pink la jungle ennemie côté où tu veux jouer',
+            'Ward le camp adverse que tu veux voler 30s avant respawn',
+            'Sweep baron/dragon 1min avant spawn',
+            'Place des wards deep quand tu as prio sur la map',
+          ] : [
+            'Buy un pink CHAQUE back - 75g peut save ta vie',
+            'Place ton pink dans le bush river ou tribush',
+            'Utilise ton trinket sur CD - une ward posée > une ward gardée',
+            'Si tu push, ward les 2 entrées de jungle (river + tribush/raptors)',
           ],
         };
         break;
@@ -999,49 +1308,98 @@ function generateImprovements(
         suggestion = {
           priority: 1,
           category: 'survivability',
-          title: 'Reduce Deaths',
-          description: 'Dying less means more time on the map farming and fighting.',
+          title: 'Arrête de mourir pour rien',
+          description: 'Chaque mort = 30s+ hors de la map = CS perdu, XP perdu, pression perdue.',
           currentValue: overallStats.avgDeaths,
           targetValue: 4,
           tips: [
-            'Check minimap every few seconds',
-            'Track enemy jungler',
-            'Don\'t overextend without vision',
-            'Know your champion\'s limits',
+            'Regarde ta minimap toutes les 3-5 secondes. Si tu vois pas le jungler, joue safe.',
+            'Ne chase jamais dans le fog of war - c\'est comme ça que tu te fais turn',
+            'Quand t\'es behind, accepte de perdre des CS pour pas mourir',
+            'Si tu viens de kill ton laner, BACK. Ne reste pas low HP pour farm 2 minions.',
           ],
         };
         break;
 
       case 'teamplay':
-        suggestion = {
-          priority: 2,
-          category: 'teamplay',
-          title: 'Increase Kill Participation',
-          description: 'Being more involved in fights helps your team win.',
-          currentValue: overallStats.avgKillParticipation,
-          targetValue: 60,
-          tips: [
-            'Rotate to fights when possible',
-            'Use TP/mobility to join skirmishes',
-            'Communicate with pings',
-            'Group with team after laning phase',
-          ],
-        };
+        if (mainRoleName === 'TOP') {
+          suggestion = {
+            priority: 2,
+            category: 'teamplay',
+            title: 'Impact le reste de la map',
+            description: 'Le top c\'est pas une île. Ton TP et tes roams peuvent win le game.',
+            currentValue: overallStats.avgKillParticipation,
+            targetValue: 55,
+            tips: [
+              'Garde ton TP pour les dragons - un 5v4 bot = free drake + kills',
+              'Si tu gagnes hard ta lane, push et roam mid',
+              'Ping quand tu TP pour que ton équipe engage',
+              'Après 15min, groupe avec ton équipe pour les objectifs',
+            ],
+          };
+        } else if (mainRoleName === 'JUNGLE') {
+          suggestion = {
+            priority: 1,
+            category: 'teamplay',
+            title: 'Gank plus efficacement',
+            description: 'Ta présence sur la map définit le tempo du game.',
+            currentValue: overallStats.avgKillParticipation,
+            targetValue: 65,
+            tips: [
+              'Gank une lane qui a setup la wave (slow push vers leur tour)',
+              'Gank après que l\'ennemi utilise son escape (Ezreal E, Ahri R)',
+              'Contre-gank = free double kill. Track le jungler ennemi et sois là.',
+              'Dive les ennemis low HP sous tour avec tes laners - la tour te switch',
+            ],
+          };
+        } else {
+          suggestion = {
+            priority: 2,
+            category: 'teamplay',
+            title: 'Participe plus aux fights',
+            description: 'Les games se win en équipe, pas en solo.',
+            currentValue: overallStats.avgKillParticipation,
+            targetValue: 60,
+            tips: [
+              'Watch ta minimap et move vers les fights AVANT qu\'ils commencent',
+              'Ping "On my way" quand tu roam pour que ton équipe sache',
+              'Ne farm pas bot quand ton équipe fight pour Baron',
+              'En mid-game, groupe avec ton équipe plutôt que split seul',
+            ],
+          };
+        }
         break;
 
       case 'consistency':
         suggestion = {
-          priority: 3,
+          priority: 2,
           category: 'consistency',
-          title: 'Improve Consistency',
-          description: 'Stable performance leads to more reliable climbing.',
+          title: 'Stabilise ton niveau de jeu',
+          description: 'Un joueur consistent climb. Un joueur coinflip stagne.',
           currentValue: weakness.value,
           targetValue: 0.3,
           tips: [
-            'Stick to 2-3 champions',
-            'Review replays of losses',
-            'Don\'t play tilted',
-            'Focus on fundamentals every game',
+            'One-trick ou joue max 3 champions. Tu ne peux pas être bon sur 10 champs.',
+            'Arrête de jouer après 2 défaites de suite. Le tilt = mauvaises décisions.',
+            'Même fed, respecte tes fondamentaux: ward, track, farm.',
+            'Review tes replays: chaque mort = une erreur. Trouve laquelle.',
+          ],
+        };
+        break;
+
+      case 'objectives':
+        suggestion = {
+          priority: 2,
+          category: 'objectives',
+          title: 'Priorise les objectifs',
+          description: 'Dragons, heralds, barons win les games. Pas les kills.',
+          currentValue: overallStats.avgDragonTakedowns || 0,
+          targetValue: 2.5,
+          tips: [
+            'Setup vision 1min avant spawn (pink + sweep)',
+            'Push les waves bot/mid avant de start dragon',
+            'Herald = 2-3 plates = 320-480g. Use le dans une lane avec plates.',
+            'Après un ace ou 2 kills, toujours take un objectif (pas recall)',
           ],
         };
         break;
