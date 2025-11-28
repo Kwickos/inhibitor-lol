@@ -131,6 +131,52 @@ export const championPositionRates = sqliteTable(
   })
 );
 
+// Champion benchmarks table - High elo stats per champion/role for comparison
+export const championBenchmarks = sqliteTable(
+  'champion_benchmarks',
+  {
+    championId: integer('champion_id').notNull(),
+    championName: text('champion_name').notNull(),
+    role: text('role').notNull(), // TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY
+    tier: text('tier').notNull(), // DIAMOND, MASTER, GRANDMASTER, CHALLENGER or "HIGH_ELO" for combined
+    // Sample size
+    gamesAnalyzed: integer('games_analyzed').notNull().default(0),
+    // Core stats (averages)
+    avgKills: integer('avg_kills'), // stored as x100 for precision
+    avgDeaths: integer('avg_deaths'),
+    avgAssists: integer('avg_assists'),
+    avgKda: integer('avg_kda'), // x100
+    winRate: integer('win_rate'), // x100 (e.g., 5234 = 52.34%)
+    // Farming
+    avgCsPerMin: integer('avg_cs_per_min'), // x100
+    avgGoldPerMin: integer('avg_gold_per_min'),
+    // Damage
+    avgDamagePerMin: integer('avg_damage_per_min'),
+    avgDamageShare: integer('avg_damage_share'), // x100 (percentage)
+    // Vision
+    avgVisionScorePerMin: integer('avg_vision_score_per_min'), // x100
+    avgWardsPlaced: integer('avg_wards_placed'),
+    avgControlWardsPlaced: integer('avg_control_wards_placed'),
+    // Combat
+    avgKillParticipation: integer('avg_kill_participation'), // x100
+    avgSoloKills: integer('avg_solo_kills'), // x100
+    // Skillshots (for skill expression)
+    avgSkillshotsHit: integer('avg_skillshots_hit'),
+    avgSkillshotsDodged: integer('avg_skillshots_dodged'),
+    // Early game
+    avgLaneMinionsFirst10Min: integer('avg_lane_minions_first_10_min'),
+    avgEarlyGoldAdvantage: integer('avg_early_gold_advantage'),
+    // Objectives
+    avgTurretPlatesTaken: integer('avg_turret_plates_taken'), // x100
+    avgDragonTakedowns: integer('avg_dragon_takedowns'), // x100
+    // Timestamps
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.championId, table.role, table.tier] }),
+  })
+);
+
 // Types for insertions
 export type InsertSummoner = typeof summoners.$inferInsert;
 export type SelectSummoner = typeof summoners.$inferSelect;
@@ -146,3 +192,6 @@ export type SelectRank = typeof ranks.$inferSelect;
 
 export type InsertChampionPositionRate = typeof championPositionRates.$inferInsert;
 export type SelectChampionPositionRate = typeof championPositionRates.$inferSelect;
+
+export type InsertChampionBenchmark = typeof championBenchmarks.$inferInsert;
+export type SelectChampionBenchmark = typeof championBenchmarks.$inferSelect;

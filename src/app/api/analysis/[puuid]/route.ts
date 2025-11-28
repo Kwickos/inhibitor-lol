@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMatchIds, getMatch, QUEUE_IDS } from '@/lib/cache';
 import { redis, cacheKeys, CACHE_TTL } from '@/lib/redis';
+import { db } from '@/lib/db';
+import { championBenchmarks } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError } from '@/lib/riot-api';
 import type { Match, Participant, Team } from '@/types/riot';
@@ -9,6 +12,8 @@ import {
   type OverallStats,
   type RoleStats,
   type ChampionAnalysis,
+  type ChampionHighEloComparison,
+  type ComparisonMetric,
   type PerformanceTrends,
   type AnalysisInsight,
   type ImprovementSuggestion,
@@ -126,8 +131,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       };
     }).filter((pm) => pm.participant);
 
-    // Calculate analysis
-    const analysis = calculateAnalysis(
+    // Calculate analysis (async - includes fetching champion benchmarks)
+    const analysis = await calculateAnalysis(
       puuid,
       gameName,
       tagLine,
@@ -171,22 +176,22 @@ interface PlayerMatch {
   gameDuration: number;
 }
 
-function calculateAnalysis(
+async function calculateAnalysis(
   puuid: string,
   gameName: string,
   tagLine: string,
   region: string,
   playerMatches: PlayerMatch[],
   queueName: string
-): PlayerAnalysis {
+): Promise<PlayerAnalysis> {
   // Overall stats
   const overallStats = calculateOverallStats(playerMatches);
 
   // Per-role stats
   const roleStats = calculateRoleStats(playerMatches);
 
-  // Champion analysis
-  const championAnalysis = calculateChampionAnalysis(playerMatches);
+  // Champion analysis (async - fetches benchmarks from DB)
+  const championAnalysis = await calculateChampionAnalysis(playerMatches);
 
   // Trends
   const trends = calculateTrends(playerMatches);
@@ -251,8 +256,32 @@ function calculateOverallStats(playerMatches: PlayerMatch[]): OverallStats {
   let totalGoldShare = 0;
   let multiKills = 0;
 
+  // New challenge-based metrics
+  let totalSoloKills = 0;
+  let soloKillsCount = 0;
+  let totalSkillshotsHit = 0;
+  let skillshotsHitCount = 0;
+  let totalSkillshotsDodged = 0;
+  let skillshotsDodgedCount = 0;
+  let totalTurretPlates = 0;
+  let turretPlatesCount = 0;
+  let totalDragonTakedowns = 0;
+  let dragonTakedownsCount = 0;
+  let totalControlWards = 0;
+  let controlWardsCount = 0;
+  let totalWardsKilled = 0;
+  let totalEarlyGoldAdv = 0;
+  let earlyGoldAdvCount = 0;
+  let totalLaneMinions10 = 0;
+  let laneMinions10Count = 0;
+  // Pings
+  let totalPings = 0;
+  let totalMissingPings = 0;
+  let totalDangerPings = 0;
+
   for (const pm of playerMatches) {
     const p = pm.participant;
+    const challenges = p.challenges;
     const teamParticipants = pm.allParticipants.filter(
       (ap) => ap.teamId === p.teamId
     );
@@ -296,6 +325,59 @@ function calculateOverallStats(playerMatches: PlayerMatch[]): OverallStats {
     if (teamGold > 0) {
       totalGoldShare += p.goldEarned / teamGold;
     }
+
+    // Challenge-based metrics
+    if (challenges) {
+      if (challenges.soloKills !== undefined) {
+        totalSoloKills += challenges.soloKills;
+        soloKillsCount++;
+      }
+      if (challenges.skillshotsHit !== undefined) {
+        totalSkillshotsHit += challenges.skillshotsHit;
+        skillshotsHitCount++;
+      }
+      if (challenges.skillshotsDodged !== undefined) {
+        totalSkillshotsDodged += challenges.skillshotsDodged;
+        skillshotsDodgedCount++;
+      }
+      if (challenges.turretPlatesTaken !== undefined) {
+        totalTurretPlates += challenges.turretPlatesTaken;
+        turretPlatesCount++;
+      }
+      if (challenges.dragonTakedowns !== undefined) {
+        totalDragonTakedowns += challenges.dragonTakedowns;
+        dragonTakedownsCount++;
+      }
+      if (challenges.controlWardsPlaced !== undefined) {
+        totalControlWards += challenges.controlWardsPlaced;
+        controlWardsCount++;
+      }
+      if (challenges.earlyLaningPhaseGoldExpAdvantage !== undefined) {
+        totalEarlyGoldAdv += challenges.earlyLaningPhaseGoldExpAdvantage;
+        earlyGoldAdvCount++;
+      }
+      if (challenges.laneMinionsFirst10Minutes !== undefined) {
+        totalLaneMinions10 += challenges.laneMinionsFirst10Minutes;
+        laneMinions10Count++;
+      }
+    }
+
+    // Ward kills
+    totalWardsKilled += p.wardsKilled;
+
+    // Pings
+    if (p.allInPings !== undefined) totalPings += p.allInPings;
+    if (p.assistMePings !== undefined) totalPings += p.assistMePings;
+    if (p.dangerPings !== undefined) {
+      totalPings += p.dangerPings;
+      totalDangerPings += p.dangerPings;
+    }
+    if (p.enemyMissingPings !== undefined) {
+      totalPings += p.enemyMissingPings;
+      totalMissingPings += p.enemyMissingPings;
+    }
+    if (p.onMyWayPings !== undefined) totalPings += p.onMyWayPings;
+    if (p.pushPings !== undefined) totalPings += p.pushPings;
   }
 
   const avgDuration = totalDuration / count / 60; // in minutes
@@ -320,9 +402,22 @@ function calculateOverallStats(playerMatches: PlayerMatch[]): OverallStats {
     avgGoldShare: (totalGoldShare / count) * 100,
     firstBloodRate: (firstBloods / count) * 100,
     firstTowerRate: (firstTowers / count) * 100,
-    objectiveParticipation: 0, // Would need additional data
+    objectiveParticipation: dragonTakedownsCount > 0 ? (totalDragonTakedowns / dragonTakedownsCount) : 0,
     multiKillRate: (multiKills / count) * 100,
     avgGameDuration: avgDuration,
+    // New challenge-based metrics
+    avgSoloKills: soloKillsCount > 0 ? totalSoloKills / soloKillsCount : undefined,
+    avgSkillshotsHit: skillshotsHitCount > 0 ? totalSkillshotsHit / skillshotsHitCount : undefined,
+    avgSkillshotsDodged: skillshotsDodgedCount > 0 ? totalSkillshotsDodged / skillshotsDodgedCount : undefined,
+    avgTurretPlatesTaken: turretPlatesCount > 0 ? totalTurretPlates / turretPlatesCount : undefined,
+    avgDragonTakedowns: dragonTakedownsCount > 0 ? totalDragonTakedowns / dragonTakedownsCount : undefined,
+    avgControlWardsPlaced: controlWardsCount > 0 ? totalControlWards / controlWardsCount : undefined,
+    avgWardsKilled: totalWardsKilled / count,
+    avgEarlyGoldAdvantage: earlyGoldAdvCount > 0 ? totalEarlyGoldAdv / earlyGoldAdvCount : undefined,
+    avgLaneMinionsFirst10Min: laneMinions10Count > 0 ? totalLaneMinions10 / laneMinions10Count : undefined,
+    avgPingsPerGame: totalPings / count,
+    avgMissingPings: totalMissingPings / count,
+    avgDangerPings: totalDangerPings / count,
   };
 }
 
@@ -393,7 +488,7 @@ function calculateRoleStats(playerMatches: PlayerMatch[]): Record<string, RoleSt
   return result;
 }
 
-function calculateChampionAnalysis(playerMatches: PlayerMatch[]): ChampionAnalysis[] {
+async function calculateChampionAnalysis(playerMatches: PlayerMatch[]): Promise<ChampionAnalysis[]> {
   const championMap: Record<string, PlayerMatch[]> = {};
 
   for (const pm of playerMatches) {
@@ -404,65 +499,249 @@ function calculateChampionAnalysis(playerMatches: PlayerMatch[]): ChampionAnalys
     championMap[champName].push(pm);
   }
 
-  return Object.entries(championMap)
-    .map(([championName, matches]) => {
-      const wins = matches.filter((m) => m.participant.win).length;
-      const stats = calculateOverallStats(matches);
+  const results: ChampionAnalysis[] = [];
 
-      // Find best and worst performance
-      const sortedByKDA = [...matches].sort((a, b) => {
-        const kdaA = getKDA(a.participant);
-        const kdaB = getKDA(b.participant);
-        return kdaB - kdaA;
+  for (const [championName, matches] of Object.entries(championMap)) {
+    const wins = matches.filter((m) => m.participant.win).length;
+    const championId = matches[0].participant.championId;
+
+    // Determine main role for this champion
+    const roleCount: Record<string, number> = {};
+    for (const m of matches) {
+      const role = normalizeRole(m.participant.teamPosition || m.participant.individualPosition);
+      roleCount[role] = (roleCount[role] || 0) + 1;
+    }
+    const mainRole = Object.entries(roleCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'MIDDLE';
+
+    // Calculate stats
+    let totalKills = 0, totalDeaths = 0, totalAssists = 0, totalCS = 0;
+    let totalDamage = 0, totalVision = 0, totalGold = 0, totalDuration = 0;
+    let totalKP = 0, kpCount = 0;
+    let totalDamageShare = 0, dmgShareCount = 0;
+    let totalSoloKills = 0, soloKillsCount = 0;
+    let totalSkillshotsHit = 0, skillshotsHitCount = 0;
+    let totalSkillshotsDodged = 0, skillshotsDodgedCount = 0;
+    let totalControlWards = 0, controlWardsCount = 0;
+    let totalTurretPlates = 0, turretPlatesCount = 0;
+
+    for (const m of matches) {
+      const p = m.participant;
+      const challenges = p.challenges;
+      const teamParticipants = m.allParticipants.filter(ap => ap.teamId === p.teamId);
+
+      totalKills += p.kills;
+      totalDeaths += p.deaths;
+      totalAssists += p.assists;
+      totalCS += p.totalMinionsKilled + p.neutralMinionsKilled;
+      totalDamage += p.totalDamageDealtToChampions;
+      totalVision += p.visionScore;
+      totalGold += p.goldEarned;
+      totalDuration += m.gameDuration;
+
+      // KP
+      const teamKills = teamParticipants.reduce((sum, tp) => sum + tp.kills, 0);
+      if (teamKills > 0) {
+        totalKP += (p.kills + p.assists) / teamKills;
+        kpCount++;
+      }
+
+      // Damage share
+      const teamDamage = teamParticipants.reduce((sum, tp) => sum + tp.totalDamageDealtToChampions, 0);
+      if (teamDamage > 0) {
+        totalDamageShare += p.totalDamageDealtToChampions / teamDamage;
+        dmgShareCount++;
+      }
+
+      // Challenges
+      if (challenges) {
+        if (challenges.soloKills !== undefined) { totalSoloKills += challenges.soloKills; soloKillsCount++; }
+        if (challenges.skillshotsHit !== undefined) { totalSkillshotsHit += challenges.skillshotsHit; skillshotsHitCount++; }
+        if (challenges.skillshotsDodged !== undefined) { totalSkillshotsDodged += challenges.skillshotsDodged; skillshotsDodgedCount++; }
+        if (challenges.controlWardsPlaced !== undefined) { totalControlWards += challenges.controlWardsPlaced; controlWardsCount++; }
+        if (challenges.turretPlatesTaken !== undefined) { totalTurretPlates += challenges.turretPlatesTaken; turretPlatesCount++; }
+      }
+    }
+
+    const count = matches.length;
+    const avgDuration = totalDuration / count / 60;
+    const avgKda = totalDeaths === 0 ? totalKills + totalAssists : (totalKills + totalAssists) / totalDeaths;
+
+    // Find best and worst performance
+    const sortedByKDA = [...matches].sort((a, b) => getKDA(b.participant) - getKDA(a.participant));
+    const best = sortedByKDA[0];
+    const worst = sortedByKDA[sortedByKDA.length - 1];
+
+    // Fetch high elo benchmark for this champion/role
+    let highEloComparison: ChampionHighEloComparison | undefined;
+    try {
+      const benchmark = await db.query.championBenchmarks.findFirst({
+        where: and(
+          eq(championBenchmarks.championId, championId),
+          eq(championBenchmarks.role, mainRole)
+        ),
       });
 
-      const best = sortedByKDA[0];
-      const worst = sortedByKDA[sortedByKDA.length - 1];
+      if (benchmark && benchmark.gamesAnalyzed >= 5) {
+        highEloComparison = buildHighEloComparison(
+          {
+            winRate: (wins / count) * 100,
+            kda: avgKda,
+            csPerMin: totalCS / count / avgDuration,
+            damagePerMin: totalDamage / count / avgDuration,
+            goldPerMin: totalGold / count / avgDuration,
+            visionPerMin: totalVision / count / avgDuration,
+            killParticipation: kpCount > 0 ? (totalKP / kpCount) * 100 : 0,
+            damageShare: dmgShareCount > 0 ? (totalDamageShare / dmgShareCount) * 100 : 0,
+            soloKills: soloKillsCount > 0 ? totalSoloKills / soloKillsCount : 0,
+            skillshotsHit: skillshotsHitCount > 0 ? totalSkillshotsHit / skillshotsHitCount : undefined,
+            controlWards: controlWardsCount > 0 ? totalControlWards / controlWardsCount : 0,
+          },
+          benchmark
+        );
+      }
+    } catch (e) {
+      // Benchmark not available, continue without
+    }
 
-      return {
-        championId: matches[0].participant.championId,
-        championName,
-        games: matches.length,
-        wins,
-        losses: matches.length - wins,
-        winRate: (wins / matches.length) * 100,
-        avgKDA: stats.avgKDA,
-        avgKills: stats.avgKills,
-        avgDeaths: stats.avgDeaths,
-        avgAssists: stats.avgAssists,
-        avgCS: stats.avgCS,
-        avgCSPerMin: stats.avgCSPerMin,
-        avgDamage: stats.avgDamageDealt,
-        avgVision: stats.avgVisionScore,
-        bestPerformance: best
-          ? {
-              matchId: best.match.metadata.matchId,
-              kda: getKDA(best.participant),
-              kills: best.participant.kills,
-              deaths: best.participant.deaths,
-              assists: best.participant.assists,
-              cs: best.participant.totalMinionsKilled + best.participant.neutralMinionsKilled,
-              damage: best.participant.totalDamageDealtToChampions,
-              win: best.participant.win,
-              gameCreation: best.match.info.gameCreation,
-            }
-          : null,
-        worstPerformance: worst && sortedByKDA.length > 1
-          ? {
-              matchId: worst.match.metadata.matchId,
-              kda: getKDA(worst.participant),
-              kills: worst.participant.kills,
-              deaths: worst.participant.deaths,
-              assists: worst.participant.assists,
-              cs: worst.participant.totalMinionsKilled + worst.participant.neutralMinionsKilled,
-              damage: worst.participant.totalDamageDealtToChampions,
-              win: worst.participant.win,
-              gameCreation: worst.match.info.gameCreation,
-            }
-          : null,
-      };
-    })
-    .sort((a, b) => b.games - a.games);
+    results.push({
+      championId,
+      championName,
+      role: mainRole,
+      games: count,
+      wins,
+      losses: count - wins,
+      winRate: (wins / count) * 100,
+      avgKDA: avgKda,
+      avgKills: totalKills / count,
+      avgDeaths: totalDeaths / count,
+      avgAssists: totalAssists / count,
+      avgCS: totalCS / count,
+      avgCSPerMin: totalCS / count / avgDuration,
+      avgDamage: totalDamage / count,
+      avgDamagePerMin: totalDamage / count / avgDuration,
+      avgVision: totalVision / count,
+      avgVisionPerMin: totalVision / count / avgDuration,
+      avgGoldPerMin: totalGold / count / avgDuration,
+      avgKillParticipation: kpCount > 0 ? (totalKP / kpCount) * 100 : 0,
+      avgDamageShare: dmgShareCount > 0 ? (totalDamageShare / dmgShareCount) * 100 : 0,
+      avgSoloKills: soloKillsCount > 0 ? totalSoloKills / soloKillsCount : 0,
+      avgSkillshotsHit: skillshotsHitCount > 0 ? totalSkillshotsHit / skillshotsHitCount : 0,
+      avgSkillshotsDodged: skillshotsDodgedCount > 0 ? totalSkillshotsDodged / skillshotsDodgedCount : 0,
+      avgControlWardsPlaced: controlWardsCount > 0 ? totalControlWards / controlWardsCount : 0,
+      avgTurretPlatesTaken: turretPlatesCount > 0 ? totalTurretPlates / turretPlatesCount : 0,
+      highEloComparison,
+      bestPerformance: best ? {
+        matchId: best.match.metadata.matchId,
+        kda: getKDA(best.participant),
+        kills: best.participant.kills,
+        deaths: best.participant.deaths,
+        assists: best.participant.assists,
+        cs: best.participant.totalMinionsKilled + best.participant.neutralMinionsKilled,
+        damage: best.participant.totalDamageDealtToChampions,
+        win: best.participant.win,
+        gameCreation: best.match.info.gameCreation,
+      } : null,
+      worstPerformance: worst && sortedByKDA.length > 1 ? {
+        matchId: worst.match.metadata.matchId,
+        kda: getKDA(worst.participant),
+        kills: worst.participant.kills,
+        deaths: worst.participant.deaths,
+        assists: worst.participant.assists,
+        cs: worst.participant.totalMinionsKilled + worst.participant.neutralMinionsKilled,
+        damage: worst.participant.totalDamageDealtToChampions,
+        win: worst.participant.win,
+        gameCreation: worst.match.info.gameCreation,
+      } : null,
+    });
+  }
+
+  return results.sort((a, b) => b.games - a.games);
+}
+
+// Build high elo comparison from player stats and benchmark
+function buildHighEloComparison(
+  playerStats: {
+    winRate: number;
+    kda: number;
+    csPerMin: number;
+    damagePerMin: number;
+    goldPerMin: number;
+    visionPerMin: number;
+    killParticipation: number;
+    damageShare: number;
+    soloKills: number;
+    skillshotsHit?: number;
+    controlWards: number;
+  },
+  benchmark: typeof championBenchmarks.$inferSelect
+): ChampionHighEloComparison {
+  const createMetric = (playerValue: number, benchmarkValue: number | null): ComparisonMetric => {
+    const highEloValue = benchmarkValue ? benchmarkValue / 100 : 0;
+    const diff = highEloValue > 0 ? ((playerValue - highEloValue) / highEloValue) * 100 : 0;
+    const percentile = getComparisonPercentile(playerValue, highEloValue);
+    return {
+      playerValue,
+      highEloValue,
+      difference: diff,
+      percentile,
+      rating: getRating(playerValue, highEloValue || 1),
+    };
+  };
+
+  const metrics = {
+    winRate: createMetric(playerStats.winRate, benchmark.winRate),
+    kda: createMetric(playerStats.kda, benchmark.avgKda),
+    csPerMin: createMetric(playerStats.csPerMin, benchmark.avgCsPerMin),
+    damagePerMin: createMetric(playerStats.damagePerMin, benchmark.avgDamagePerMin),
+    goldPerMin: createMetric(playerStats.goldPerMin, benchmark.avgGoldPerMin),
+    visionPerMin: createMetric(playerStats.visionPerMin, benchmark.avgVisionScorePerMin),
+    killParticipation: createMetric(playerStats.killParticipation, benchmark.avgKillParticipation),
+    damageShare: createMetric(playerStats.damageShare, benchmark.avgDamageShare),
+    soloKills: createMetric(playerStats.soloKills, benchmark.avgSoloKills),
+    skillshotsHit: playerStats.skillshotsHit !== undefined && benchmark.avgSkillshotsHit
+      ? createMetric(playerStats.skillshotsHit, benchmark.avgSkillshotsHit * 100)
+      : undefined,
+    controlWards: createMetric(playerStats.controlWards, benchmark.avgControlWardsPlaced),
+  };
+
+  // Calculate overall rating
+  const scores = [
+    metrics.winRate.percentile,
+    metrics.kda.percentile,
+    metrics.csPerMin.percentile,
+    metrics.damagePerMin.percentile,
+    metrics.killParticipation.percentile,
+  ];
+  const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+  let overallRating: 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
+  if (avgScore >= 90) overallRating = 'S';
+  else if (avgScore >= 75) overallRating = 'A';
+  else if (avgScore >= 60) overallRating = 'B';
+  else if (avgScore >= 45) overallRating = 'C';
+  else if (avgScore >= 30) overallRating = 'D';
+  else overallRating = 'F';
+
+  return {
+    tier: 'ALL_RANKS',
+    gamesAnalyzed: benchmark.gamesAnalyzed,
+    metrics,
+    overallRating,
+    percentile: avgScore,
+  };
+}
+
+function getComparisonPercentile(playerValue: number, benchmarkValue: number): number {
+  if (benchmarkValue === 0) return 50;
+  const ratio = playerValue / benchmarkValue;
+  if (ratio >= 1.5) return 95;
+  if (ratio >= 1.3) return 85;
+  if (ratio >= 1.15) return 75;
+  if (ratio >= 1.0) return 60;
+  if (ratio >= 0.9) return 45;
+  if (ratio >= 0.8) return 35;
+  if (ratio >= 0.7) return 25;
+  return 15;
 }
 
 function calculateTrends(playerMatches: PlayerMatch[]): PerformanceTrends {
@@ -852,5 +1131,18 @@ function getEmptyStats(): OverallStats {
     objectiveParticipation: 0,
     multiKillRate: 0,
     avgGameDuration: 0,
+    // New challenge-based metrics
+    avgSoloKills: undefined,
+    avgSkillshotsHit: undefined,
+    avgSkillshotsDodged: undefined,
+    avgTurretPlatesTaken: undefined,
+    avgDragonTakedowns: undefined,
+    avgControlWardsPlaced: undefined,
+    avgWardsKilled: 0,
+    avgEarlyGoldAdvantage: undefined,
+    avgLaneMinionsFirst10Min: undefined,
+    avgPingsPerGame: 0,
+    avgMissingPings: 0,
+    avgDangerPings: 0,
   };
 }

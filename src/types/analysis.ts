@@ -56,6 +56,21 @@ export interface OverallStats {
   objectiveParticipation: number;
   multiKillRate: number;
   avgGameDuration: number;
+  // New challenge-based metrics
+  avgSoloKills?: number;
+  avgSkillshotsHit?: number;
+  avgSkillshotsDodged?: number;
+  avgSkillshotAccuracy?: number; // skillshotsHit / (skillshotsHit + skillshotsDodged by enemies)
+  avgTurretPlatesTaken?: number;
+  avgDragonTakedowns?: number;
+  avgControlWardsPlaced?: number;
+  avgWardsKilled?: number;
+  avgEarlyGoldAdvantage?: number; // From challenges.earlyLaningPhaseGoldExpAdvantage
+  avgLaneMinionsFirst10Min?: number;
+  // Ping analytics
+  avgPingsPerGame?: number;
+  avgMissingPings?: number;
+  avgDangerPings?: number;
 }
 
 export interface RoleStats extends OverallStats {
@@ -84,6 +99,7 @@ export interface BenchmarkMetric {
 export interface ChampionAnalysis {
   championId: number;
   championName: string;
+  role: string; // Main role played on this champion
   games: number;
   wins: number;
   losses: number;
@@ -95,9 +111,51 @@ export interface ChampionAnalysis {
   avgCS: number;
   avgCSPerMin: number;
   avgDamage: number;
+  avgDamagePerMin: number;
   avgVision: number;
+  avgVisionPerMin: number;
+  avgGoldPerMin: number;
+  // New challenge-based stats
+  avgKillParticipation: number;
+  avgDamageShare: number;
+  avgSoloKills: number;
+  avgSkillshotsHit: number;
+  avgSkillshotsDodged: number;
+  avgControlWardsPlaced: number;
+  avgTurretPlatesTaken: number;
+  // High Elo comparison
+  highEloComparison?: ChampionHighEloComparison;
   bestPerformance: MatchPerformance | null;
   worstPerformance: MatchPerformance | null;
+}
+
+// Comparison with high elo players on the same champion
+export interface ChampionHighEloComparison {
+  tier: string; // "DIAMOND+", "MASTER+", etc.
+  gamesAnalyzed: number;
+  metrics: {
+    winRate: ComparisonMetric;
+    kda: ComparisonMetric;
+    csPerMin: ComparisonMetric;
+    damagePerMin: ComparisonMetric;
+    goldPerMin: ComparisonMetric;
+    visionPerMin: ComparisonMetric;
+    killParticipation: ComparisonMetric;
+    damageShare: ComparisonMetric;
+    soloKills: ComparisonMetric;
+    skillshotsHit?: ComparisonMetric;
+    controlWards: ComparisonMetric;
+  };
+  overallRating: 'S' | 'A' | 'B' | 'C' | 'D' | 'F'; // Overall grade vs high elo
+  percentile: number; // 0-100, where player stands vs high elo on this champ
+}
+
+export interface ComparisonMetric {
+  playerValue: number;
+  highEloValue: number;
+  difference: number; // percentage difference
+  percentile: number; // 0-100
+  rating: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
 }
 
 export interface MatchPerformance {
