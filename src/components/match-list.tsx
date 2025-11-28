@@ -417,14 +417,6 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
             </div>
           )}
 
-          {/* Total games info */}
-          {allMatches.length > 0 && (
-            <div className="flex justify-center pt-4">
-              <p className="text-xs text-muted-foreground">
-                {allMatches.length} games loaded
-              </p>
-            </div>
-          )}
         </>
       )}
     </div>
