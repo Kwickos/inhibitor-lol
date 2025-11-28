@@ -393,6 +393,72 @@ export async function getStoredMatchCount(puuid: string): Promise<number> {
   }
 }
 
+// Get all match summaries from DB for a player (no API calls)
+export async function getStoredMatchSummaries(puuid: string): Promise<{
+  matchId: string;
+  queueId: number;
+  gameCreation: number;
+  gameDuration: number;
+  gameMode: string;
+  win: boolean;
+  participant: Match['info']['participants'][0];
+  allParticipants: Match['info']['participants'];
+  teams: Match['info']['teams'];
+}[]> {
+  try {
+    // Get all match IDs for this player from playerMatches
+    const playerMatchData = await db
+      .select({
+        matchId: playerMatches.matchId,
+        win: playerMatches.win,
+        createdAt: playerMatches.createdAt,
+      })
+      .from(playerMatches)
+      .where(eq(playerMatches.puuid, puuid))
+      .orderBy(desc(playerMatches.createdAt));
+
+    if (playerMatchData.length === 0) return [];
+
+    // Get all match details from matches table
+    const matchIds = playerMatchData.map(pm => pm.matchId);
+    const matchDetails = await db
+      .select()
+      .from(matches)
+      .where(sql`${matches.matchId} IN (${sql.join(matchIds.map(id => sql`${id}`), sql`, `)})`);
+
+    // Create a map for quick lookup
+    const matchMap = new Map(matchDetails.map(m => [m.matchId, m]));
+
+    // Build summaries
+    const summaries = [];
+    for (const pm of playerMatchData) {
+      const match = matchMap.get(pm.matchId);
+      if (!match) continue;
+
+      const participants = match.participants as Match['info']['participants'];
+      const participant = participants.find(p => p.puuid === puuid);
+      if (!participant) continue;
+
+      summaries.push({
+        matchId: match.matchId,
+        queueId: match.queueId,
+        gameCreation: match.gameCreation,
+        gameDuration: match.gameDuration,
+        gameMode: match.gameMode,
+        win: pm.win,
+        participant,
+        allParticipants: participants,
+        teams: [] as Match['info']['teams'], // Teams not stored in DB currently
+      });
+    }
+
+    return summaries;
+  } catch (e) {
+    console.warn('DB error reading match summaries:', e);
+    return [];
+  }
+}
+
 // Get champion stats from stored data
 export async function getChampionStats(puuid: string) {
   try {
