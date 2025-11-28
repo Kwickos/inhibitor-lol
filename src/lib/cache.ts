@@ -179,6 +179,7 @@ export async function getMatchIds(
 }
 
 // Match with DB storage only (no Redis cache - matches are permanent data)
+// Stores FULL API response including challenges, pings, missions for deep analytics
 export async function getMatch(matchId: string, region: RegionKey): Promise<Match> {
   // Try DB first (matches are permanent, no need for Redis cache)
   try {
@@ -187,7 +188,7 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
     });
 
     if (dbResult) {
-      // Reconstruct Match from DB
+      // Reconstruct Match from DB with all available metadata
       const match: Match = {
         metadata: {
           dataVersion: '2',
@@ -202,14 +203,15 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
           gameMode: dbResult.gameMode,
           gameName: '',
           gameStartTimestamp: dbResult.gameCreation,
-          gameType: '',
-          gameVersion: '',
-          mapId: 11,
+          gameType: dbResult.gameType || '',
+          gameVersion: dbResult.gameVersion || '',
+          mapId: dbResult.mapId || 11,
           participants: dbResult.participants as Match['info']['participants'],
-          platformId: '',
+          platformId: dbResult.platformId || '',
           queueId: dbResult.queueId,
           teams: (dbResult.teams as Match['info']['teams']) || [],
           tournamentCode: undefined,
+          endOfGameResult: dbResult.endOfGameResult || undefined,
         },
       };
 
@@ -222,7 +224,8 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
   // Fetch from Riot API
   const match = await riotApi.getMatch(matchId, region);
 
-  // Store in DB only (no Redis - saves cache space)
+  // Store in DB with ALL metadata (no Redis - saves cache space)
+  // This includes full participant data with challenges, pings, missions
   try {
     await db
       .insert(matches)
@@ -232,6 +235,13 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
         gameDuration: match.info.gameDuration,
         gameMode: match.info.gameMode,
         queueId: match.info.queueId,
+        // Additional metadata for filtering/analytics
+        gameVersion: match.info.gameVersion,
+        mapId: match.info.mapId,
+        platformId: match.info.platformId,
+        gameType: match.info.gameType,
+        endOfGameResult: match.info.endOfGameResult,
+        // Full participant data (includes challenges, pings, missions)
         participants: match.info.participants,
         teams: match.info.teams,
         updatedAt: new Date(),
@@ -284,7 +294,8 @@ export async function getLiveGame(
   return liveGame;
 }
 
-// Store player match data for ALL participants (so we don't need to refetch for other profiles)
+// Store player match data for ALL participants with extended stats for analytics
+// This stores denormalized data for fast queries without parsing JSON
 export async function storePlayerMatch(
   puuid: string,
   match: Match
@@ -294,20 +305,75 @@ export async function storePlayerMatch(
 
     // Store data for ALL 10 participants, not just the requested player
     // This way, when we visit another player's profile, we already have their match data
-    const values = match.info.participants.map(participant => ({
-      puuid: participant.puuid,
-      matchId: match.metadata.matchId,
-      win: participant.win,
-      championId: participant.championId,
-      championName: participant.championName,
-      kills: participant.kills,
-      deaths: participant.deaths,
-      assists: participant.assists,
-      cs: participant.totalMinionsKilled + participant.neutralMinionsKilled,
-      visionScore: participant.visionScore,
-      teamPosition: participant.teamPosition,
-      createdAt: gameCreation,
-    }));
+    const values = match.info.participants.map(participant => {
+      // Extract challenges data (may not exist for all game modes)
+      const challenges = participant.challenges;
+
+      // Get primary and secondary rune styles
+      const primaryStyle = participant.perks?.styles?.find(s => s.description === 'primaryStyle');
+      const secondaryStyle = participant.perks?.styles?.find(s => s.description === 'subStyle');
+
+      return {
+        puuid: participant.puuid,
+        matchId: match.metadata.matchId,
+        win: participant.win,
+        championId: participant.championId,
+        championName: participant.championName,
+        kills: participant.kills,
+        deaths: participant.deaths,
+        assists: participant.assists,
+        cs: participant.totalMinionsKilled + participant.neutralMinionsKilled,
+        visionScore: participant.visionScore,
+        teamPosition: participant.teamPosition,
+        // Extended stats for analytics
+        goldEarned: participant.goldEarned,
+        totalDamageDealtToChampions: participant.totalDamageDealtToChampions,
+        totalDamageTaken: participant.totalDamageTaken,
+        totalHeal: participant.totalHeal,
+        totalDamageShieldedOnTeammates: participant.totalDamageShieldedOnTeammates,
+        wardsPlaced: participant.wardsPlaced,
+        wardsKilled: participant.wardsKilled,
+        controlWardsPlaced: participant.detectorWardsPlaced ?? participant.visionWardsBoughtInGame,
+        doubleKills: participant.doubleKills,
+        tripleKills: participant.tripleKills,
+        quadraKills: participant.quadraKills,
+        pentaKills: participant.pentaKills,
+        firstBloodKill: participant.firstBloodKill,
+        turretKills: participant.turretKills,
+        objectivesStolen: participant.objectivesStolen,
+        // Challenges stats (stored as integers, multiply floats by 100)
+        damagePerMinute: challenges?.damagePerMinute ? Math.round(challenges.damagePerMinute) : null,
+        goldPerMinute: challenges?.goldPerMinute ? Math.round(challenges.goldPerMinute) : null,
+        kda: challenges?.kda ? Math.round(challenges.kda * 100) : null,
+        killParticipation: challenges?.killParticipation ? Math.round(challenges.killParticipation * 100) : null,
+        teamDamagePercentage: challenges?.teamDamagePercentage ? Math.round(challenges.teamDamagePercentage * 100) : null,
+        visionScorePerMinute: challenges?.visionScorePerMinute ? Math.round(challenges.visionScorePerMinute * 100) : null,
+        soloKills: challenges?.soloKills ?? null,
+        skillshotsDodged: challenges?.skillshotsDodged ?? null,
+        skillshotsHit: challenges?.skillshotsHit ?? null,
+        // Time data
+        timePlayed: participant.timePlayed,
+        totalTimeSpentDead: participant.totalTimeSpentDead,
+        // Items (for build path analysis)
+        item0: participant.item0,
+        item1: participant.item1,
+        item2: participant.item2,
+        item3: participant.item3,
+        item4: participant.item4,
+        item5: participant.item5,
+        item6: participant.item6,
+        // Summoner spells
+        summoner1Id: participant.summoner1Id,
+        summoner2Id: participant.summoner2Id,
+        // Runes
+        primaryRune: primaryStyle?.selections?.[0]?.perk ?? null,
+        secondaryRune: secondaryStyle?.style ?? null,
+        // Game metadata (denormalized)
+        queueId: match.info.queueId,
+        gameVersion: match.info.gameVersion,
+        createdAt: gameCreation,
+      };
+    });
 
     // Insert all participants (ignore conflicts for existing entries)
     for (const value of values) {

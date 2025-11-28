@@ -59,9 +59,156 @@ export interface MatchInfo {
   queueId: number;
   teams: Team[];
   tournamentCode?: string;
+  // Additional fields for deep analytics
+  endOfGameResult?: string; // 'GameComplete', 'Surrender', etc.
+}
+
+// Challenges DTO - 100+ fields for deep analytics
+export interface Challenges {
+  '12AssistStreakCount'?: number;
+  abilityUses?: number;
+  acesBefore15Minutes?: number;
+  alliedJungleMonsterKills?: number;
+  baronBuffGoldAdvantageOverThreshold?: number;
+  baronTakedowns?: number;
+  blastConeOppositeOpponentCount?: number;
+  bountyGold?: number;
+  buffsStolen?: number;
+  completeSupportQuestInTime?: number;
+  controlWardTimeCoverageInRiverOrEnemyHalf?: number;
+  controlWardsPlaced?: number;
+  damagePerMinute?: number;
+  damageTakenOnTeamPercentage?: number;
+  dancedWithRiftHerald?: number;
+  deathsByEnemyChamps?: number;
+  dodgeSkillShotsSmallWindow?: number;
+  doubleAces?: number;
+  dragonTakedowns?: number;
+  earliestBaron?: number;
+  earliestDragonTakedown?: number;
+  earlyLaningPhaseGoldExpAdvantage?: number;
+  effectiveHealAndShielding?: number;
+  elderDragonKillsWithOpposingSoul?: number;
+  elderDragonMultikills?: number;
+  enemyChampionImmobilizations?: number;
+  enemyJungleMonsterKills?: number;
+  epicMonsterKillsNearEnemyJungler?: number;
+  epicMonsterKillsWithin30SecondsOfSpawn?: number;
+  epicMonsterSteals?: number;
+  epicMonsterStolenWithoutSmite?: number;
+  firstTurretKilled?: number;
+  firstTurretKilledTime?: number;
+  flawlessAces?: number;
+  fullTeamTakedown?: number;
+  gameLength?: number;
+  getTakedownsInAllLanesEarlyJungleAsLaner?: number;
+  goldPerMinute?: number;
+  hadOpenNexus?: number;
+  highestChampionDamage?: number;
+  highestCrowdControlScore?: number;
+  highestWardKills?: number;
+  immobilizeAndKillWithAlly?: number;
+  initialBuffCount?: number;
+  initialCrabCount?: number;
+  jungleCsBefore10Minutes?: number;
+  junglerKillsEarlyJungle?: number;
+  junglerTakedownsNearDamagedEpicMonster?: number;
+  kTurretsDestroyedBeforePlatesFall?: number;
+  kda?: number;
+  killAfterHiddenWithAlly?: number;
+  killParticipation?: number;
+  killedChampTookFullTeamDamageSurvived?: number;
+  killingSprees?: number;
+  killsNearEnemyTurret?: number;
+  killsOnLanersEarlyJungleAsJungler?: number;
+  killsOnOtherLanesEarlyJungleAsLaner?: number;
+  killsOnRecentlyHealedByAramPack?: number;
+  killsUnderOwnTurret?: number;
+  killsWithHelpFromEpicMonster?: number;
+  knockEnemyIntoTeamAndKill?: number;
+  landSkillShotsEarlyGame?: number;
+  laneMinionsFirst10Minutes?: number;
+  laningPhaseGoldExpAdvantage?: number;
+  legendaryCount?: number;
+  legendaryItemUsed?: number[];
+  lostAnInhibitor?: number;
+  maxCsAdvantageOnLaneOpponent?: number;
+  maxKillDeficit?: number;
+  maxLevelLeadLaneOpponent?: number;
+  mejaisFullStackInTime?: number;
+  moreEnemyJungleThanOpponent?: number;
+  multiKillOneSpell?: number;
+  multiTurretRiftHeraldCount?: number;
+  multikills?: number;
+  multikillsAfterAggressiveFlash?: number;
+  mythicItemUsed?: number;
+  outerTurretExecutesBefore10Minutes?: number;
+  outnumberedKills?: number;
+  outnumberedNexusKill?: number;
+  perfectDragonSoulsTaken?: number;
+  perfectGame?: number;
+  pickKillWithAlly?: number;
+  playedChampSelectPosition?: number;
+  poroExplosions?: number;
+  quickCleanse?: number;
+  quickFirstTurret?: number;
+  quickSoloKills?: number;
+  riftHeraldTakedowns?: number;
+  saveAllyFromDeath?: number;
+  scuttleCrabKills?: number;
+  shortestTimeToAceFromFirstTakedown?: number;
+  skillshotsDodged?: number;
+  skillshotsHit?: number;
+  snowballsHit?: number;
+  soloBaronKills?: number;
+  soloKills?: number;
+  soloTurretsLategame?: number;
+  stealthWardsPlaced?: number;
+  survivedSingleDigitHpCount?: number;
+  survivedThreeImmobilizesInFight?: number;
+  takedownOnFirstTurret?: number;
+  takedowns?: number;
+  takedownsAfterGainingLevelAdvantage?: number;
+  takedownsBeforeJungleMinionSpawn?: number;
+  takedownsFirstXMinutes?: number;
+  takedownsInAlcove?: number;
+  takedownsInEnemyFountain?: number;
+  teamBaronKills?: number;
+  teamDamagePercentage?: number;
+  teamElderDragonKills?: number;
+  teamRiftHeraldKills?: number;
+  threeWardsOneSweeperCount?: number;
+  tookLargeDamageSurvived?: number;
+  turretPlatesTaken?: number;
+  turretTakedowns?: number;
+  turretsTakenWithRiftHerald?: number;
+  twentyMinionsIn3SecondsCount?: number;
+  twoWardsOneSweeperCount?: number;
+  unseenRecalls?: number;
+  visionScoreAdvantageLaneOpponent?: number;
+  visionScorePerMinute?: number;
+  wardTakedowns?: number;
+  wardTakedownsBefore20M?: number;
+  wardsGuarded?: number;
+  // ARAM specific
+  InfernalScalePickup?: number;
+  fistBumpParticipation?: number;
+  voidMonsterKill?: number;
+  // Arena specific
+  SWARM_DefeatAatrox?: number;
+  SWARM_DefeatBriar?: number;
+  SWARM_DefeatMiniBosses?: number;
+  SWARM_EvolveWeapon?: number;
+  SWARM_Have3Passives?: number;
+  SWARM_KillEnemy?: number;
+  SWARM_PickupGold?: number;
+  SWARM_ReachLevel50?: number;
+  SWARM_Survive15Min?: number;
+  SWARM_WinWith5EvolvedWeapons?: number;
 }
 
 export interface Participant {
+  // Basic info
   assists: number;
   baronKills: number;
   bountyLevel: number;
@@ -69,23 +216,72 @@ export interface Participant {
   champLevel: number;
   championId: number;
   championName: string;
+  championTransform?: number; // Kayn transformation
+  consumablesPurchased?: number;
+
+  // Damage dealt
   damageDealtToBuildings: number;
   damageDealtToObjectives: number;
   damageDealtToTurrets: number;
   damageSelfMitigated: number;
+  magicDamageDealt: number;
+  magicDamageDealtToChampions: number;
+  physicalDamageDealt: number;
+  physicalDamageDealtToChampions: number;
+  trueDamageDealt: number;
+  trueDamageDealtToChampions: number;
+  totalDamageDealt: number;
+  totalDamageDealtToChampions: number;
+  totalDamageShieldedOnTeammates: number;
+  largestCriticalStrike: number;
+
+  // Damage taken
+  magicDamageTaken: number;
+  physicalDamageTaken: number;
+  trueDamageTaken: number;
+  totalDamageTaken: number;
+
+  // Kills & deaths
   deaths: number;
+  kills: number;
   doubleKills: number;
-  dragonKills: number;
+  tripleKills: number;
+  quadraKills: number;
+  pentaKills: number;
+  unrealKills: number; // Hexakill+
+  killingSprees: number;
+  largestKillingSpree: number;
+  largestMultiKill: number;
+  longestTimeSpentLiving: number;
+
+  // First blood / tower
   firstBloodAssist: boolean;
   firstBloodKill: boolean;
   firstTowerAssist: boolean;
   firstTowerKill: boolean;
+
+  // Gold
   goldEarned: number;
   goldSpent: number;
+
+  // Position & role
   individualPosition: string;
+  lane: string;
+  role: string;
+  teamPosition: string;
+
+  // Structures
   inhibitorKills: number;
   inhibitorTakedowns: number;
   inhibitorsLost: number;
+  nexusKills: number;
+  nexusLost: number;
+  nexusTakedowns: number;
+  turretKills: number;
+  turretTakedowns: number;
+  turretsLost: number;
+
+  // Items
   item0: number;
   item1: number;
   item2: number;
@@ -94,34 +290,32 @@ export interface Participant {
   item5: number;
   item6: number;
   itemsPurchased: number;
-  killingSprees: number;
-  kills: number;
-  lane: string;
-  largestCriticalStrike: number;
-  largestKillingSpree: number;
-  largestMultiKill: number;
-  longestTimeSpentLiving: number;
-  magicDamageDealt: number;
-  magicDamageDealtToChampions: number;
-  magicDamageTaken: number;
+
+  // CS & jungle
   neutralMinionsKilled: number;
-  nexusKills: number;
-  nexusLost: number;
-  nexusTakedowns: number;
+  totalMinionsKilled: number;
+  totalAllyJungleMinionsKilled?: number;
+  totalEnemyJungleMinionsKilled?: number;
+
+  // Objectives
+  dragonKills: number;
   objectivesStolen: number;
   objectivesStolenAssists: number;
+
+  // Participant info
   participantId: number;
-  pentaKills: number;
-  perks: Perks;
-  physicalDamageDealt: number;
-  physicalDamageDealtToChampions: number;
-  physicalDamageTaken: number;
   puuid: string;
-  quadraKills: number;
   riotIdGameName: string;
   riotIdTagline: string;
-  role: string;
-  sightWardsBoughtInGame: number;
+  summonerId: string;
+  summonerLevel: number;
+  summonerName: string;
+  profileIcon?: number;
+
+  // Perks (runes)
+  perks: Perks;
+
+  // Spells
   spell1Casts: number;
   spell2Casts: number;
   spell3Casts: number;
@@ -130,37 +324,81 @@ export interface Participant {
   summoner1Id: number;
   summoner2Casts: number;
   summoner2Id: number;
-  summonerId: string;
-  summonerLevel: number;
-  summonerName: string;
+
+  // Team
   teamEarlySurrendered: boolean;
   teamId: number;
-  teamPosition: string;
+
+  // CC & time
   timeCCingOthers: number;
   timePlayed: number;
-  totalDamageDealt: number;
-  totalDamageDealtToChampions: number;
-  totalDamageShieldedOnTeammates: number;
-  totalDamageTaken: number;
-  totalHeal: number;
-  totalHealsOnTeammates: number;
-  totalMinionsKilled: number;
   totalTimeCCDealt: number;
   totalTimeSpentDead: number;
+
+  // Healing
+  totalHeal: number;
+  totalHealsOnTeammates: number;
   totalUnitsHealed: number;
-  tripleKills: number;
-  trueDamageDealt: number;
-  trueDamageDealtToChampions: number;
-  trueDamageTaken: number;
-  turretKills: number;
-  turretTakedowns: number;
-  turretsLost: number;
-  unrealKills: number;
+
+  // Vision
   visionScore: number;
   visionWardsBoughtInGame: number;
+  sightWardsBoughtInGame: number;
   wardsKilled: number;
   wardsPlaced: number;
+  detectorWardsPlaced?: number;
+
+  // Game outcome
   win: boolean;
+  gameEndedInEarlySurrender?: boolean;
+  gameEndedInSurrender?: boolean;
+  eligibleForProgression?: boolean;
+
+  // CHALLENGES - Deep analytics (100+ metrics)
+  challenges?: Challenges;
+
+  // PINGS - Communication analytics
+  allInPings?: number;
+  assistMePings?: number;
+  baitPings?: number;
+  basicPings?: number;
+  commandPings?: number;
+  dangerPings?: number;
+  enemyMissingPings?: number;
+  enemyVisionPings?: number;
+  getBackPings?: number;
+  holdPings?: number;
+  needVisionPings?: number;
+  onMyWayPings?: number;
+  pushPings?: number;
+  visionClearedPings?: number;
+
+  // MISSIONS - Score tracking
+  playerScore0?: number;
+  playerScore1?: number;
+  playerScore2?: number;
+  playerScore3?: number;
+  playerScore4?: number;
+  playerScore5?: number;
+  playerScore6?: number;
+  playerScore7?: number;
+  playerScore8?: number;
+  playerScore9?: number;
+  playerScore10?: number;
+  playerScore11?: number;
+
+  // Arena/SWARM augments
+  playerAugment1?: number;
+  playerAugment2?: number;
+  playerAugment3?: number;
+  playerAugment4?: number;
+  playerAugment5?: number;
+  playerAugment6?: number;
+  playerSubteamId?: number;
+  subteamPlacement?: number;
+
+  // Placement (TFT-like modes)
+  placement?: number;
 }
 
 export interface Perks {
