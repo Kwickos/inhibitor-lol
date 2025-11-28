@@ -178,19 +178,9 @@ export async function getMatchIds(
   });
 }
 
-// Match with caching (Redis + DB)
+// Match with DB storage only (no Redis cache - matches are permanent data)
 export async function getMatch(matchId: string, region: RegionKey): Promise<Match> {
-  const cacheKey = cacheKeys.match(matchId);
-
-  // Try Redis
-  try {
-    const cached = await redis.get<Match>(cacheKey);
-    if (cached) return cached;
-  } catch (e) {
-    console.warn('Redis error:', e);
-  }
-
-  // Try DB (with graceful fallback if tables don't exist)
+  // Try DB first (matches are permanent, no need for Redis cache)
   try {
     const dbResult = await db.query.matches.findFirst({
       where: eq(matches.matchId, matchId),
@@ -218,13 +208,11 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
           participants: dbResult.participants as Match['info']['participants'],
           platformId: '',
           queueId: dbResult.queueId,
-          teams: [],
+          teams: (dbResult.teams as Match['info']['teams']) || [],
           tournamentCode: undefined,
         },
       };
 
-      // Store in Redis
-      redis.set(cacheKey, match, { ex: CACHE_TTL.MATCH_DETAILS }).catch(console.warn);
       return match;
     }
   } catch (e) {
@@ -234,10 +222,7 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
   // Fetch from Riot API
   const match = await riotApi.getMatch(matchId, region);
 
-  // Store in Redis
-  redis.set(cacheKey, match, { ex: CACHE_TTL.MATCH_DETAILS }).catch(console.warn);
-
-  // Store in DB (non-blocking, graceful fallback)
+  // Store in DB only (no Redis - saves cache space)
   try {
     await db
       .insert(matches)

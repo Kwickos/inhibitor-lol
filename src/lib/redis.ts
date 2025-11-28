@@ -7,22 +7,21 @@ export const redis = new Redis({
 });
 
 // Cache TTLs in seconds
-// Note: Matches are also stored in Turso DB, so Redis is just a short-term cache
+// Note: Matches are stored in Turso DB permanently, Redis is only for volatile data
 export const CACHE_TTL = {
-  SUMMONER: 30 * 60, // 30 minutes (DB has permanent storage)
-  MATCH_IDS: 5 * 60, // 5 minutes
-  MATCH_DETAILS: 30 * 60, // 30 minutes (DB has permanent storage)
-  RANKS: 10 * 60, // 10 minutes
-  MASTERIES: 30 * 60, // 30 minutes
+  SUMMONER: 15 * 60, // 15 minutes
+  MATCH_IDS: 2 * 60, // 2 minutes (just to avoid hammering API during page load)
+  RANKS: 5 * 60, // 5 minutes
+  MASTERIES: 15 * 60, // 15 minutes
   LIVE_GAME: 30, // 30 seconds
-  ANALYSIS: 10 * 60, // 10 minutes
+  ANALYSIS: 5 * 60, // 5 minutes
 } as const;
 
 // Cache key generators
+// Note: matches are stored in DB only (no Redis) to save cache space
 export const cacheKeys = {
   summoner: (puuid: string) => `summoner:${puuid}`,
   matchIds: (puuid: string) => `match_ids:${puuid}`,
-  match: (matchId: string) => `match:${matchId}`,
   ranks: (puuid: string) => `ranks:${puuid}`,
   masteries: (puuid: string) => `masteries:${puuid}`,
   liveGame: (puuid: string) => `live_game:${puuid}`,
