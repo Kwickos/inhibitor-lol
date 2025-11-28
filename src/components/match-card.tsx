@@ -6,7 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Clock, Sword, Eye, ChevronDown, Target, Coins, TrendingUp, TrendingDown, Minus, Zap, Shield, Crosshair, Activity, Award } from 'lucide-react';
 import { getChampionIconUrl, getItemIconUrl, getSummonerSpellIconUrl } from '@/lib/riot-api';
-import { TowerIcon, DragonIcon, BaronIcon, HeraldIcon, InhibitorIcon, GrubsIcon, AtakhanIcon } from '@/components/icons/objective-icons';
+import { TowerIcon, DragonIcon, BaronIcon, HeraldIcon, GrubsIcon, AtakhanIcon } from '@/components/icons/objective-icons';
 import { getQueueInfo } from '@/lib/constants/queues';
 import { cn } from '@/lib/utils';
 import type { MatchSummary, Participant } from '@/types/riot';
@@ -878,18 +878,15 @@ function TeamObjectives({ team }: { team?: MatchSummary['teams'][0] }) {
       color: 'text-emerald-400'
     });
   }
-  if (team.objectives.tower?.kills > 0) {
+  // Combine towers + inhibitors
+  const towers = team.objectives.tower?.kills || 0;
+  const inhibitors = team.objectives.inhibitor?.kills || 0;
+  const structures = towers + inhibitors;
+  if (structures > 0) {
     objectives.push({
       icon: <TowerIcon className="w-3.5 h-3.5" />,
-      count: team.objectives.tower.kills,
+      count: structures,
       color: 'text-sky-400'
-    });
-  }
-  if (team.objectives.inhibitor?.kills > 0) {
-    objectives.push({
-      icon: <InhibitorIcon className="w-3.5 h-3.5" />,
-      count: team.objectives.inhibitor.kills,
-      color: 'text-pink-400'
     });
   }
 
