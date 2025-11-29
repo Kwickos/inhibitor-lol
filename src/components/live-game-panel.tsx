@@ -735,7 +735,7 @@ function StatBox({
   );
 }
 
-// Game plan section with coaching advice
+// Game plan section with coaching advice based on stats + timeline analysis
 function GamePlanSection({
   analysis,
   opponentChampion,
@@ -743,56 +743,125 @@ function GamePlanSection({
   analysis: PlayerAnalysis;
   opponentChampion: string;
 }) {
-  const tips: string[] = [];
+  const tips: { text: string; priority: number }[] = [];
 
-  // Analyze stats and generate tips
-  const { overallStats, trends } = analysis;
+  const { overallStats, trends, timelineAnalysis } = analysis;
 
-  // Win rate analysis
+  // === TIMELINE-BASED TIPS (highest value insights) ===
+  if (timelineAnalysis) {
+    const { goldAnalysis, leadAnalysis, powerSpikeAnalysis } = timelineAnalysis;
+
+    // Early game gold analysis
+    if (goldAnalysis.avgGoldDiffAt10 < -300) {
+      tips.push({
+        text: `Weak early (avg -${Math.abs(goldAnalysis.avgGoldDiffAt10)}g @10min). Play aggressive early to snowball.`,
+        priority: 1
+      });
+    } else if (goldAnalysis.avgGoldDiffAt10 > 400) {
+      tips.push({
+        text: `Strong laner (+${goldAnalysis.avgGoldDiffAt10}g @10min). Play safe early, don't give kills.`,
+        priority: 1
+      });
+    }
+
+    // Mid game gold analysis
+    if (goldAnalysis.avgGoldDiffAt15 < -500 && goldAnalysis.avgGoldDiffAt10 >= -200) {
+      tips.push({
+        text: 'Falls off mid-game. Survive lane and outscale after 15min.',
+        priority: 2
+      });
+    }
+
+    // Throw rate - VERY valuable info
+    if (leadAnalysis.throwRate >= 25) {
+      tips.push({
+        text: `Throws leads often (${leadAnalysis.throwRate.toFixed(0)}%). Stay patient if behind - they choke around ${leadAnalysis.avgThrowMinute.toFixed(0)}min.`,
+        priority: 1
+      });
+    }
+
+    // Lead conversion
+    if (leadAnalysis.leadConversionRate < 60 && leadAnalysis.leadRateAt15 > 40) {
+      tips.push({
+        text: `Can't close games (${leadAnalysis.leadConversionRate.toFixed(0)}% conversion). Don't FF early, they'll throw.`,
+        priority: 1
+      });
+    } else if (leadAnalysis.leadConversionRate >= 80) {
+      tips.push({
+        text: `Closes games well (${leadAnalysis.leadConversionRate.toFixed(0)}%). Don't let them snowball.`,
+        priority: 2
+      });
+    }
+
+    // Comeback potential
+    if (leadAnalysis.comebackRate >= 20) {
+      tips.push({
+        text: `Good at comebacks (${leadAnalysis.comebackRate.toFixed(0)}%). End fast if ahead, don't let them scale.`,
+        priority: 2
+      });
+    }
+
+    // Power spike timing
+    if (powerSpikeAnalysis.firstItemDelta >= 1.5) {
+      tips.push({
+        text: `Slow item spikes (+${powerSpikeAnalysis.firstItemDelta.toFixed(1)}min). Punish weak tempo with trades.`,
+        priority: 2
+      });
+    } else if (powerSpikeAnalysis.firstItemDelta <= -1) {
+      tips.push({
+        text: `Fast spikes (${powerSpikeAnalysis.firstItemDelta.toFixed(1)}min ahead). Respect their item timings.`,
+        priority: 2
+      });
+    }
+
+    // Level advantage
+    if (powerSpikeAnalysis.avgLevelDiffAt10 >= 0.5) {
+      tips.push({
+        text: `Usually ahead in XP (+${powerSpikeAnalysis.avgLevelDiffAt10.toFixed(1)} lvl @10). Don't fight when down levels.`,
+        priority: 3
+      });
+    } else if (powerSpikeAnalysis.avgLevelDiffAt10 <= -0.5) {
+      tips.push({
+        text: 'Often behind in XP. Use level 2/3/6 spike aggressively.',
+        priority: 2
+      });
+    }
+  }
+
+  // === BASIC STATS TIPS ===
   if (overallStats.winRate >= 55) {
-    tips.push(`High win rate player (${overallStats.winRate.toFixed(0)}%). Respect their skill and avoid coinflip fights.`);
+    tips.push({ text: `High win rate (${overallStats.winRate.toFixed(0)}%). Respect, avoid coinflips.`, priority: 3 });
   } else if (overallStats.winRate < 48) {
-    tips.push(`Low win rate (${overallStats.winRate.toFixed(0)}%). They may tilt easily - apply pressure.`);
+    tips.push({ text: `Low win rate (${overallStats.winRate.toFixed(0)}%). They tilt easily - pressure them.`, priority: 3 });
   }
 
-  // KDA analysis
   if (overallStats.avgKDA >= 3.5) {
-    tips.push('Very clean player with high KDA. They play safe - force trades when they overextend.');
+    tips.push({ text: 'High KDA - plays safe. Force trades on overextends.', priority: 3 });
   } else if (overallStats.avgKDA < 2) {
-    tips.push('Low KDA player. They take risky fights - bait them into bad engages.');
+    tips.push({ text: 'Low KDA - risky player. Bait bad engages.', priority: 3 });
   }
 
-  // CS analysis
   if (overallStats.avgCSPerMin >= 8) {
-    tips.push('Strong farmer. Contest their CS and deny cannons to slow their spike timing.');
+    tips.push({ text: 'Strong farmer. Contest CS to delay spikes.', priority: 3 });
   } else if (overallStats.avgCSPerMin < 6) {
-    tips.push('Weak farmer. Out-CS them and gain item advantage through superior gold income.');
+    tips.push({ text: 'Weak farmer. Out-CS for item lead.', priority: 3 });
   }
 
-  // Vision analysis
   if (overallStats.avgVisionPerMin < 0.8) {
-    tips.push('Poor vision control. Ask your jungler to gank - they likely won\'t see it coming.');
+    tips.push({ text: 'Poor vision. Ask jungler for ganks.', priority: 3 });
   }
 
-  // Trend analysis
   if (trends.kdaTrend === 'declining' && trends.winRateTrend === 'declining') {
-    tips.push('On a downward trend. They may be tilted - punish their mistakes aggressively.');
-  } else if (trends.kdaTrend === 'improving' && trends.winRateTrend === 'improving') {
-    tips.push('On a hot streak. Stay focused and don\'t underestimate them.');
+    tips.push({ text: 'On a losing streak. Probably tilted - punish mistakes.', priority: 2 });
   }
 
-  // Death analysis
   if (overallStats.avgDeaths >= 5) {
-    tips.push('Dies frequently. Set up vision and catch them when they overextend.');
+    tips.push({ text: 'Dies a lot. Set up vision to catch overextends.', priority: 3 });
   }
 
-  // Kill participation
-  if (overallStats.avgKillParticipation < 45) {
-    tips.push('Low kill participation. They may not group well - punish with team plays.');
-  }
-
-  // Limit tips to best ones
-  const displayTips = tips.slice(0, 4);
+  // Sort by priority and take top 4
+  tips.sort((a, b) => a.priority - b.priority);
+  const displayTips = tips.slice(0, 4).map(t => t.text);
 
   if (displayTips.length === 0) {
     displayTips.push('Play your game and focus on your win conditions.');
