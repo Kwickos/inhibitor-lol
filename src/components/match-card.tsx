@@ -1628,10 +1628,7 @@ function VsStatBar({ label, you, them, format }: { label: string; you: number; t
           initial={{ width: '50%' }}
           animate={{ width: `${youPercent}%` }}
           transition={{ duration: 0.5 }}
-          className={cn(
-            'h-full rounded-l-full',
-            youPercent > 50 ? 'bg-primary' : youPercent < 50 ? 'bg-muted-foreground' : 'bg-muted-foreground'
-          )}
+          className="h-full rounded-l-full bg-primary"
         />
         <motion.div
           initial={{ width: '50%' }}
