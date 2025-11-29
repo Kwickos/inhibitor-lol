@@ -349,43 +349,104 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       {/* Match list grouped by day */}
       {!isLoading && !error && filteredMatches.length > 0 && (
         <>
-          <div className="space-y-6">
-            {groupedMatches.map((group, groupIndex) => (
+          <motion.div
+            className="space-y-6"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.12,
+                  delayChildren: 0.05
+                }
+              }
+            }}
+          >
+            {groupedMatches.map((group) => (
               <motion.div
                 key={group.date}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: groupIndex * 0.1 }}
+                variants={{
+                  hidden: { opacity: 0 },
+                  visible: {
+                    opacity: 1,
+                    transition: {
+                      staggerChildren: 0.04,
+                      delayChildren: 0.02
+                    }
+                  }
+                }}
               >
                 {/* Day header */}
-                <div className="flex items-center gap-3 mb-3">
+                <motion.div
+                  className="flex items-center gap-3 mb-3"
+                  variants={{
+                    hidden: { opacity: 0, x: -15 },
+                    visible: {
+                      opacity: 1,
+                      x: 0,
+                      transition: {
+                        duration: 0.35,
+                        ease: [0.25, 0.46, 0.45, 0.94] as const
+                      }
+                    }
+                  }}
+                >
                   <div className="text-sm font-medium">
                     {group.label}
                   </div>
-                  <div className="h-px flex-1 bg-border/50" />
+                  <motion.div
+                    className="h-px flex-1 bg-border/50"
+                    variants={{
+                      hidden: { scaleX: 0, originX: 0 },
+                      visible: {
+                        scaleX: 1,
+                        transition: {
+                          duration: 0.4,
+                          ease: [0.25, 0.46, 0.45, 0.94] as const
+                        }
+                      }
+                    }}
+                  />
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-primary font-medium">{group.wins}W</span>
                     <span className="text-muted-foreground">/</span>
                     <span className="text-[#ef4444] font-medium">{group.losses}L</span>
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Matches for this day */}
                 <div className="space-y-2">
-                  {group.matches.map((match, index) => (
-                    <MatchCard
+                  {group.matches.map((match) => (
+                    <motion.div
                       key={match.matchId}
-                      match={match}
-                      currentPuuid={puuid}
-                      region={region}
-                      delay={index * 0.02}
-                      benchmarks={benchmarks}
-                    />
+                      variants={{
+                        hidden: { opacity: 0, y: 12, scale: 0.98 },
+                        visible: {
+                          opacity: 1,
+                          y: 0,
+                          scale: 1,
+                          transition: {
+                            duration: 0.35,
+                            ease: [0.25, 0.46, 0.45, 0.94] as const
+                          }
+                        }
+                      }}
+                    >
+                      <MatchCard
+                        match={match}
+                        currentPuuid={puuid}
+                        region={region}
+                        delay={0}
+                        benchmarks={benchmarks}
+                      />
+                    </motion.div>
                   ))}
                 </div>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
 
           {/* Pagination */}
           {totalPages > 1 && (

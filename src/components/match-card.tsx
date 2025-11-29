@@ -1136,10 +1136,37 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
             {/* Tab content */}
             <div className="p-4">
               {activeTab === 'overview' ? (
-                <div className="space-y-3">
+                <motion.div
+                  className="space-y-3"
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    hidden: { opacity: 0 },
+                    visible: {
+                      opacity: 1,
+                      transition: {
+                        staggerChildren: 0.03,
+                        delayChildren: 0.02
+                      }
+                    }
+                  }}
+                >
                   {/* Your team */}
                   <div>
-                    <div className="text-xs font-medium mb-2 flex items-center gap-2 flex-wrap">
+                    <motion.div
+                      className="text-xs font-medium mb-2 flex items-center gap-2 flex-wrap"
+                      variants={{
+                        hidden: { opacity: 0, x: -10 },
+                        visible: {
+                          opacity: 1,
+                          x: 0,
+                          transition: {
+                            duration: 0.3,
+                            ease: [0.25, 0.46, 0.45, 0.94] as const
+                          }
+                        }
+                      }}
+                    >
                       <div className={cn(
                         'w-2 h-2 rounded-full flex-shrink-0',
                         participant.teamId === 100 ? 'bg-blue-500' : 'bg-red-500'
@@ -1154,24 +1181,52 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                         - {participant.teamId === 100 ? 'Blue' : 'Red'} Team
                       </span>
                       <TeamObjectives team={match.teams?.find(t => t.teamId === participant.teamId)} />
-                    </div>
+                    </motion.div>
                     <div className="space-y-1">
                       {playerTeam.map((p) => (
-                        <PlayerRow
+                        <motion.div
                           key={p.puuid}
-                          player={p}
-                          region={region}
-                          gameDuration={match.gameDuration}
-                          isCurrentPlayer={p.puuid === currentPuuid}
-                          maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
-                        />
+                          variants={{
+                            hidden: { opacity: 0, x: -12, scale: 0.97 },
+                            visible: {
+                              opacity: 1,
+                              x: 0,
+                              scale: 1,
+                              transition: {
+                                duration: 0.28,
+                                ease: [0.25, 0.46, 0.45, 0.94] as const
+                              }
+                            }
+                          }}
+                        >
+                          <PlayerRow
+                            player={p}
+                            region={region}
+                            gameDuration={match.gameDuration}
+                            isCurrentPlayer={p.puuid === currentPuuid}
+                            maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
+                          />
+                        </motion.div>
                       ))}
                     </div>
                   </div>
 
                   {/* Enemy team */}
                   <div>
-                    <div className="text-xs font-medium mb-2 flex items-center gap-2 flex-wrap">
+                    <motion.div
+                      className="text-xs font-medium mb-2 flex items-center gap-2 flex-wrap"
+                      variants={{
+                        hidden: { opacity: 0, x: -10 },
+                        visible: {
+                          opacity: 1,
+                          x: 0,
+                          transition: {
+                            duration: 0.3,
+                            ease: [0.25, 0.46, 0.45, 0.94] as const
+                          }
+                        }
+                      }}
+                    >
                       <div className={cn(
                         'w-2 h-2 rounded-full flex-shrink-0',
                         participant.teamId === 100 ? 'bg-red-500' : 'bg-blue-500'
@@ -1186,21 +1241,36 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                         - {participant.teamId === 100 ? 'Red' : 'Blue'} Team
                       </span>
                       <TeamObjectives team={match.teams?.find(t => t.teamId !== participant.teamId)} />
-                    </div>
+                    </motion.div>
                     <div className="space-y-1">
                       {enemyTeam.map((p) => (
-                        <PlayerRow
+                        <motion.div
                           key={p.puuid}
-                          player={p}
-                          region={region}
-                          gameDuration={match.gameDuration}
-                          isCurrentPlayer={p.puuid === currentPuuid}
-                          maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
-                        />
+                          variants={{
+                            hidden: { opacity: 0, x: 12, scale: 0.97 },
+                            visible: {
+                              opacity: 1,
+                              x: 0,
+                              scale: 1,
+                              transition: {
+                                duration: 0.28,
+                                ease: [0.25, 0.46, 0.45, 0.94] as const
+                              }
+                            }
+                          }}
+                        >
+                          <PlayerRow
+                            player={p}
+                            region={region}
+                            gameDuration={match.gameDuration}
+                            isCurrentPlayer={p.puuid === currentPuuid}
+                            maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
+                          />
+                        </motion.div>
                       ))}
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ) : activeTab === 'analysis' ? (
                 <GameAnalysisTab
                   participant={participant}
@@ -1372,14 +1442,79 @@ function GameAnalysisTab({
   };
   const grade = gradeConfig[gameScore.grade] || gradeConfig['C'];
 
+  // Stagger animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.06,
+        delayChildren: 0.02
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 12, scale: 0.97 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 0.35,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const scaleVariants = {
+    hidden: { opacity: 0, scale: 0.85 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        duration: 0.4,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const slideLeftVariants = {
+    hidden: { opacity: 0, x: -15 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.35,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const slideRightVariants = {
+    hidden: { opacity: 0, x: 15 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: {
+        duration: 0.35,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
   return (
-    <div className="space-y-3">
+    <motion.div
+      className="space-y-3"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {/* Top Row: Grade + Core Stats */}
       <div className="grid grid-cols-12 gap-3">
         {/* Grade Card - Prominent */}
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
+          variants={scaleVariants}
           className="col-span-3 relative"
         >
           <div className={cn(
@@ -1408,7 +1543,7 @@ function GameAnalysisTab({
         </motion.div>
 
         {/* KDA Display */}
-        <div className="col-span-5 rounded-xl border border-border/40 bg-card/50 p-3">
+        <motion.div variants={itemVariants} className="col-span-5 rounded-xl border border-border/40 bg-card/50 p-3">
           <div className="flex items-baseline gap-1 mb-2">
             <span className="text-2xl font-bold tabular-nums">{participant.kills}</span>
             <span className="text-muted-foreground">/</span>
@@ -1432,23 +1567,21 @@ function GameAnalysisTab({
               <span className={cn('font-medium', damageShare >= 25 ? 'text-primary' : '')}>{damageShare.toFixed(0)}%</span>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Score Bars - Compact */}
-        <div className="col-span-4 rounded-xl border border-border/40 bg-card/50 p-3 space-y-2">
+        <motion.div variants={itemVariants} className="col-span-4 rounded-xl border border-border/40 bg-card/50 p-3 space-y-2">
           <CompactScoreBar label="Combat" value={gameScore.combat} />
           <CompactScoreBar label="Farm" value={gameScore.farming} />
           <CompactScoreBar label="Vision" value={gameScore.vision} />
           <CompactScoreBar label="Obj" value={gameScore.objectives} />
-        </div>
+        </motion.div>
       </div>
 
       {/* Middle Row: VS Opponent */}
       {opponent && (
         <motion.div
-          initial={{ y: 10, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.1 }}
+          variants={itemVariants}
           className="rounded-xl border border-border/40 bg-card/50 overflow-hidden"
         >
           <div className="px-3 py-2 border-b border-border/30 bg-muted/20">
@@ -1500,9 +1633,7 @@ function GameAnalysisTab({
       <div className="grid grid-cols-2 gap-3">
         {/* Strengths */}
         <motion.div
-          initial={{ x: -10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
+          variants={slideLeftVariants}
           className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-transparent p-3"
         >
           <div className="flex items-center gap-2 mb-2">
@@ -1525,9 +1656,7 @@ function GameAnalysisTab({
 
         {/* To Improve */}
         <motion.div
-          initial={{ x: 10, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
+          variants={slideRightVariants}
           className={cn(
             'rounded-xl border p-3',
             gameScore.improvements.length > 0
@@ -1567,9 +1696,7 @@ function GameAnalysisTab({
 
       {/* Extra Stats Row */}
       <motion.div
-        initial={{ y: 10, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3 }}
+        variants={itemVariants}
         className="grid grid-cols-6 gap-2"
       >
         <MicroStat label="CS/min" value={csPerMin.toFixed(1)} good={csPerMin >= 7} />
@@ -1579,7 +1706,7 @@ function GameAnalysisTab({
         <MicroStat label="Solo Kills" value={soloKills.toString()} good={soloKills >= 2} />
         <MicroStat label="Plates" value={turretPlates.toString()} good={turretPlates >= 2} />
       </motion.div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2790,14 +2917,26 @@ function PlayerRow({
       <div className="flex-1 min-w-0 hidden md:block">
         <div className="flex items-center gap-2">
           <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary/60 rounded-full"
+            <motion.div
+              className="h-full bg-primary/60 rounded-full origin-left"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{
+                duration: 0.6,
+                ease: [0.25, 0.46, 0.45, 0.94],
+                delay: 0.15
+              }}
               style={{ width: `${damagePercent}%` }}
             />
           </div>
-          <span className="text-[10px] text-muted-foreground w-12 text-right">
+          <motion.span
+            className="text-[10px] text-muted-foreground w-12 text-right tabular-nums"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.4 }}
+          >
             {(player.totalDamageDealtToChampions / 1000).toFixed(1)}k
-          </span>
+          </motion.span>
         </div>
       </div>
 

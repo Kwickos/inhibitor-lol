@@ -213,88 +213,168 @@ export default function SummonerPage({ params }: PageProps) {
           {/* Live Game Tab */}
           {data.liveGame && (
             <div className={cn(activeTab === 'livegame' ? 'block' : 'hidden')}>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: activeTab === 'livegame' ? 1 : 0, y: activeTab === 'livegame' ? 0 : 10 }}
-                transition={{ duration: 0.2 }}
-              >
-                <LiveGamePanel
-                  currentPuuid={data.account.puuid}
-                  region={region}
-                  gameData={data.liveGame}
-                />
-              </motion.div>
+              <LiveGamePanel
+                currentPuuid={data.account.puuid}
+                region={region}
+                gameData={data.liveGame}
+                isActive={activeTab === 'livegame'}
+              />
             </div>
           )}
 
           {/* Overview Tab */}
           <div className={cn(activeTab === 'overview' ? 'block' : 'hidden')}>
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: activeTab === 'overview' ? 1 : 0, y: activeTab === 'overview' ? 0 : 10 }}
-              transition={{ duration: 0.2 }}
+              initial="hidden"
+              animate={activeTab === 'overview' ? 'visible' : 'hidden'}
+              variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                  opacity: 1,
+                  transition: {
+                    staggerChildren: 0.08,
+                    delayChildren: 0.05
+                  }
+                }
+              }}
               className="grid grid-cols-1 lg:grid-cols-3 gap-8"
             >
               {/* Left column - Ranks & Champion Stats */}
-              <div className="space-y-6">
+              <motion.div
+                className="space-y-6"
+                variants={{
+                  hidden: { opacity: 0 },
+                  visible: {
+                    opacity: 1,
+                    transition: {
+                      staggerChildren: 0.1,
+                      delayChildren: 0.05
+                    }
+                  }
+                }}
+              >
                 {/* Ranks */}
                 <div className="space-y-4">
-                  {soloRank ? (
-                    <RankCard entry={soloRank} />
-                  ) : (
-                    <UnrankedCard queueType="RANKED_SOLO_5x5" />
-                  )}
-                  {flexRank ? (
-                    <RankCard entry={flexRank} delay={0.1} />
-                  ) : (
-                    <UnrankedCard queueType="RANKED_FLEX_SR" delay={0.1} />
-                  )}
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, x: -20, scale: 0.95 },
+                      visible: {
+                        opacity: 1,
+                        x: 0,
+                        scale: 1,
+                        transition: {
+                          duration: 0.4,
+                          ease: [0.25, 0.46, 0.45, 0.94] as const
+                        }
+                      }
+                    }}
+                  >
+                    {soloRank ? (
+                      <RankCard entry={soloRank} />
+                    ) : (
+                      <UnrankedCard queueType="RANKED_SOLO_5x5" />
+                    )}
+                  </motion.div>
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, x: -20, scale: 0.95 },
+                      visible: {
+                        opacity: 1,
+                        x: 0,
+                        scale: 1,
+                        transition: {
+                          duration: 0.4,
+                          ease: [0.25, 0.46, 0.45, 0.94] as const
+                        }
+                      }
+                    }}
+                  >
+                    {flexRank ? (
+                      <RankCard entry={flexRank} delay={0.1} />
+                    ) : (
+                      <UnrankedCard queueType="RANKED_FLEX_SR" delay={0.1} />
+                    )}
+                  </motion.div>
                 </div>
 
                 {/* Champion Stats */}
-                <ChampionStatsCard puuid={data.account.puuid} />
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 20, scale: 0.97 },
+                    visible: {
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      transition: {
+                        duration: 0.45,
+                        ease: [0.25, 0.46, 0.45, 0.94] as const
+                      }
+                    }
+                  }}
+                >
+                  <ChampionStatsCard puuid={data.account.puuid} />
+                </motion.div>
 
                 {/* Duo Partners */}
-                <DuoPartnersCard puuid={data.account.puuid} region={region as RegionKey} regionSlug={region} />
-              </div>
+                <motion.div
+                  variants={{
+                    hidden: { opacity: 0, y: 20, scale: 0.97 },
+                    visible: {
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      transition: {
+                        duration: 0.45,
+                        ease: [0.25, 0.46, 0.45, 0.94] as const
+                      }
+                    }
+                  }}
+                >
+                  <DuoPartnersCard puuid={data.account.puuid} region={region as RegionKey} regionSlug={region} />
+                </motion.div>
+              </motion.div>
 
               {/* Right column - Match History */}
-              <div className="lg:col-span-2">
+              <motion.div
+                className="lg:col-span-2"
+                variants={{
+                  hidden: { opacity: 0, x: 30 },
+                  visible: {
+                    opacity: 1,
+                    x: 0,
+                    transition: {
+                      duration: 0.5,
+                      ease: [0.25, 0.46, 0.45, 0.94] as const,
+                      delay: 0.15
+                    }
+                  }
+                }}
+              >
                 <MatchList puuid={data.account.puuid} region={region} />
-              </div>
+              </motion.div>
             </motion.div>
           </div>
 
           {/* Analysis Tab */}
           <div className={cn(activeTab === 'analysis' ? 'block' : 'hidden')}>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: activeTab === 'analysis' ? 1 : 0, y: activeTab === 'analysis' ? 0 : 10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <AnalysisPanel
-                puuid={data.account.puuid}
-                region={region}
-                gameName={data.account.gameName}
-                tagLine={data.account.tagLine}
-              />
-            </motion.div>
+            <AnalysisPanel
+              puuid={data.account.puuid}
+              region={region}
+              gameName={data.account.gameName}
+              tagLine={data.account.tagLine}
+              isActive={activeTab === 'analysis'}
+            />
           </div>
 
           {/* Stats Tab */}
           <div className={cn(activeTab === 'stats' ? 'block' : 'hidden')}>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: activeTab === 'stats' ? 1 : 0, y: activeTab === 'stats' ? 0 : 10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <StatsPanel
-                puuid={data.account.puuid}
-                region={region}
-                gameName={data.account.gameName}
-                tagLine={data.account.tagLine}
-              />
-            </motion.div>
+            <StatsPanel
+              puuid={data.account.puuid}
+              region={region}
+              gameName={data.account.gameName}
+              tagLine={data.account.tagLine}
+              isActive={activeTab === 'stats'}
+            />
           </div>
         </div>
       </div>

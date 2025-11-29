@@ -37,11 +37,12 @@ interface AnalysisPanelProps {
   region: string;
   gameName: string;
   tagLine: string;
+  isActive?: boolean;
 }
 
 type QueueType = 'solo' | 'flex';
 
-export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPanelProps) {
+export function AnalysisPanel({ puuid, region, gameName, tagLine, isActive = true }: AnalysisPanelProps) {
   const [analysis, setAnalysis] = useState<PlayerAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,19 +85,63 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
     );
   }
 
+  // Stagger animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.05
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20, scale: 0.98 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 0.4,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const cardVariants = {
+    hidden: { opacity: 0, x: -15, scale: 0.97 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      scale: 1,
+      transition: {
+        duration: 0.45,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      variants={containerVariants}
+      initial="hidden"
+      animate={isActive ? "visible" : "hidden"}
+    >
       {/* Queue Selector */}
-      <QueueSelector queueType={queueType} onQueueChange={setQueueType} />
+      <motion.div variants={itemVariants}>
+        <QueueSelector queueType={queueType} onQueueChange={setQueueType} />
+      </motion.div>
 
       {/* Performance Overview - Radar Style Stats */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-      >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Stat Rings */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-6">
+        <motion.div
+          variants={cardVariants}
+          className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-6"
+        >
           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
           <h3 className="text-lg font-semibold flex items-center gap-2 mb-6">
@@ -133,10 +178,13 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
             <MiniStat label="DMG/min" value={`${(analysis.overallStats.avgDamagePerMin / 1000).toFixed(1)}k`} icon={<Sword className="h-3.5 w-3.5" />} />
             <MiniStat label="Gold/min" value={analysis.overallStats.avgGoldPerMin.toFixed(0)} icon={<Award className="h-3.5 w-3.5" />} />
           </div>
-        </div>
+        </motion.div>
 
         {/* Right: Trends */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-6">
+        <motion.div
+          variants={cardVariants}
+          className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-6"
+        >
           <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
 
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
@@ -170,63 +218,51 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
               format={(v) => v.toFixed(2)}
             />
           </div>
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
 
       {/* Insights & Improvement Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 xl:grid-cols-3 gap-6"
-      >
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Strengths & Weaknesses - 2 columns on xl */}
         <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InsightCard
-            title="Strengths"
-            icon={<CheckCircle2 className="h-5 w-5" />}
-            insights={analysis.strengths}
-            type="strength"
-          />
-          <InsightCard
-            title="Areas to Improve"
-            icon={<AlertTriangle className="h-5 w-5" />}
-            insights={analysis.weaknesses}
-            type="weakness"
-          />
+          <motion.div variants={cardVariants}>
+            <InsightCard
+              title="Strengths"
+              icon={<CheckCircle2 className="h-5 w-5" />}
+              insights={analysis.strengths}
+              type="strength"
+            />
+          </motion.div>
+          <motion.div variants={cardVariants}>
+            <InsightCard
+              title="Areas to Improve"
+              icon={<AlertTriangle className="h-5 w-5" />}
+              insights={analysis.weaknesses}
+              type="weakness"
+            />
+          </motion.div>
         </div>
 
         {/* Improvement Plan - Sidebar */}
         {analysis.improvements.length > 0 && (
-          <div className="xl:col-span-1">
+          <motion.div variants={cardVariants} className="xl:col-span-1">
             <ImprovementPlanCompact improvements={analysis.improvements} />
-          </div>
+          </motion.div>
         )}
-      </motion.div>
+      </div>
 
-      {/* Champions & Role Performance Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="grid grid-cols-1 xl:grid-cols-3 gap-6"
-      >
-        {/* Top Champions - Takes 2 columns */}
-        <div className="xl:col-span-2">
-          <TopChampionsGrid champions={analysis.championAnalysis.slice(0, 8)} />
-        </div>
-
-        {/* Role Performance - Sidebar */}
-        <div className="xl:col-span-1">
-          <RolePerformanceCompact roleStats={analysis.roleStats} />
-        </div>
+      {/* Champions Section */}
+      <motion.div variants={cardVariants}>
+        <TopChampionsGrid champions={analysis.championAnalysis.slice(0, 8)} />
       </motion.div>
 
       {/* Timeline Deep Analysis Section */}
       {analysis.timelineAnalysis && (
-        <TimelineSection timelineAnalysis={analysis.timelineAnalysis} />
+        <motion.div variants={itemVariants}>
+          <TimelineSection timelineAnalysis={analysis.timelineAnalysis} />
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

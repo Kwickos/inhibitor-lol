@@ -605,61 +605,142 @@ export function GoldGraph({
   playerTeamId,
 }: GoldGraphProps) {
   const finalGoldDiff = chartData.length > 0 ? chartData[chartData.length - 1].teamGoldDiff : 0;
+  const playerFinalDiff = chartData.length > 0 ? chartData[chartData.length - 1].playerGoldDiff : 0;
+
+  // Stagger animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.08,
+        delayChildren: 0.05
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.4,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const scaleVariants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        duration: 0.35,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
 
   return (
-    <div className="space-y-4">
+    <motion.div
+      className="space-y-4"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-3">
-        <div className={cn(
-          'relative overflow-hidden rounded-xl p-3 text-center',
-          finalGoldDiff > 0 ? 'bg-primary/10 border border-primary/20' : 'bg-destructive/10 border border-destructive/20'
-        )}>
-          <div className="absolute top-0 right-0 w-16 h-16 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"
-               style={{ backgroundColor: finalGoldDiff > 0 ? 'hsl(var(--primary) / 0.3)' : 'hsl(var(--destructive) / 0.3)' }} />
-          <div className={cn('text-lg font-bold', finalGoldDiff > 0 ? 'text-primary' : 'text-destructive')}>
+        <motion.div
+          variants={scaleVariants}
+          className={cn(
+            'relative overflow-hidden rounded-xl p-3 text-center',
+            finalGoldDiff > 0 ? 'bg-primary/10 border border-primary/20' : 'bg-destructive/10 border border-destructive/20'
+          )}
+        >
+          <motion.div
+            className="absolute top-0 right-0 w-16 h-16 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"
+            style={{ backgroundColor: finalGoldDiff > 0 ? 'hsl(var(--primary) / 0.3)' : 'hsl(var(--destructive) / 0.3)' }}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+          />
+          <motion.div
+            className={cn('text-lg font-bold', finalGoldDiff > 0 ? 'text-primary' : 'text-destructive')}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, duration: 0.3 }}
+          >
             {finalGoldDiff > 0 ? '+' : ''}{(finalGoldDiff / 1000).toFixed(1)}k
-          </div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Final Gold Diff</div>
-        </div>
+          </motion.div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Team Gold</div>
+        </motion.div>
 
-        <div className="relative overflow-hidden rounded-xl bg-card/50 border border-border/50 p-3 text-center">
-          <div className="text-lg font-bold text-foreground">
-            {teamfights?.length || 0}
-          </div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Teamfights</div>
-        </div>
+        <motion.div
+          variants={scaleVariants}
+          className={cn(
+            'relative overflow-hidden rounded-xl p-3 text-center',
+            playerFinalDiff > 0 ? 'bg-primary/5 border border-primary/20' : playerFinalDiff < 0 ? 'bg-destructive/5 border border-destructive/20' : 'bg-card/50 border border-border/50'
+          )}
+        >
+          <motion.div
+            className={cn('text-lg font-bold', playerFinalDiff > 0 ? 'text-primary' : playerFinalDiff < 0 ? 'text-destructive' : 'text-foreground')}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+          >
+            {playerFinalDiff > 0 ? '+' : ''}{(playerFinalDiff / 1000).toFixed(1)}k
+          </motion.div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">vs Opponent</div>
+        </motion.div>
 
-        <div className="relative overflow-hidden rounded-xl bg-card/50 border border-border/50 p-3 text-center">
-          <div className="text-lg font-bold text-foreground">
-            {objectiveMarkers?.filter(e => e.type === 'DRAGON' || e.type === 'BARON').length || 0}
-          </div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Objectives</div>
-        </div>
+        <motion.div
+          variants={scaleVariants}
+          className="relative overflow-hidden rounded-xl bg-card/50 border border-border/50 p-3 text-center"
+        >
+          <motion.div
+            className="text-lg font-bold text-foreground"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25, duration: 0.3 }}
+          >
+            {keyMoments?.length || 0}
+          </motion.div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Key Events</div>
+        </motion.div>
       </div>
 
       {/* Main Gold Chart */}
-      <GoldChart
-        data={chartData}
-        dataKey="teamGoldDiff"
-        title="Team Gold Advantage"
-        color="primary"
-        height={180}
-        keyMoments={keyMoments}
-      />
+      <motion.div variants={itemVariants}>
+        <GoldChart
+          data={chartData}
+          dataKey="teamGoldDiff"
+          title="Team Gold Advantage"
+          color="primary"
+          height={180}
+          keyMoments={keyMoments}
+        />
+      </motion.div>
 
       {/* You vs Opponent */}
-      <GoldChart
-        data={chartData}
-        dataKey="playerGoldDiff"
-        title="You vs Lane Opponent"
-        color="amber"
-        height={140}
-        keyMoments={keyMoments}
-      />
+      <motion.div variants={itemVariants}>
+        <GoldChart
+          data={chartData}
+          dataKey="playerGoldDiff"
+          title="You vs Lane Opponent"
+          color="amber"
+          height={140}
+          keyMoments={keyMoments}
+        />
+      </motion.div>
 
       {/* Game Timeline - Compact horizontal layout */}
       {keyMoments && keyMoments.length > 0 && (
-        <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+        <motion.div
+          variants={itemVariants}
+          className="rounded-xl border border-border/50 bg-card overflow-hidden"
+        >
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-medium text-foreground">Key Events</h4>
@@ -671,11 +752,16 @@ export function GoldGraph({
               {keyMoments.map((moment, idx) => (
                 <motion.div
                   key={idx}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: idx * 0.03 }}
+                  initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{
+                    delay: 0.4 + idx * 0.04,
+                    duration: 0.3,
+                    ease: [0.25, 0.46, 0.45, 0.94]
+                  }}
+                  whileHover={{ scale: 1.02 }}
                   className={cn(
-                    'flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
+                    'flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors cursor-default',
                     moment.isPositive
                       ? 'bg-primary/5 border-primary/20 hover:border-primary/40'
                       : 'bg-destructive/5 border-destructive/20 hover:border-destructive/40'
@@ -702,9 +788,9 @@ export function GoldGraph({
               ))}
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

@@ -30,11 +30,12 @@ interface StatsPanelProps {
   region: string;
   gameName: string;
   tagLine: string;
+  isActive?: boolean;
 }
 
 type QueueType = 'solo' | 'flex';
 
-export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps) {
+export function StatsPanel({ puuid, region, gameName, tagLine, isActive = true }: StatsPanelProps) {
   const [analysis, setAnalysis] = useState<PlayerAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,22 +75,90 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
 
   const stats = analysis.overallStats;
 
+  // Stagger animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.06,
+        delayChildren: 0.02
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15, scale: 0.98 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 0.35,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const sectionVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.4,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
+  const scaleVariants = {
+    hidden: { opacity: 0, scale: 0.92 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        duration: 0.45,
+        ease: [0.25, 0.46, 0.45, 0.94] as const
+      }
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      variants={containerVariants}
+      initial="hidden"
+      animate={isActive ? "visible" : "hidden"}
+    >
       {/* Queue Selector */}
-      <div className="flex items-center justify-between">
+      <motion.div
+        variants={itemVariants}
+        className="flex items-center justify-between"
+      >
         <QueueSelector queueType={queueType} onQueueChange={setQueueType} />
         <div className="text-xs text-muted-foreground">
           {analysis.analyzedGames} games analyzed
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Stats Grid - Bento style */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      <motion.div
+        className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3"
+        variants={{
+          hidden: { opacity: 0 },
+          visible: {
+            opacity: 1,
+            transition: {
+              staggerChildren: 0.04,
+              delayChildren: 0.1
+            }
+          }
+        }}
+      >
         {/* Large KDA Card */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
+          variants={scaleVariants}
           className="col-span-2 row-span-2 relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-5"
         >
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
@@ -133,7 +202,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="Win Rate"
           value={`${stats.winRate.toFixed(0)}%`}
           isGood={stats.winRate >= 50}
-          delay={0.05}
         />
 
         {/* CS/min */}
@@ -142,7 +210,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="CS / min"
           value={stats.avgCSPerMin.toFixed(1)}
           isGood={stats.avgCSPerMin >= 7}
-          delay={0.1}
         />
 
         {/* Vision */}
@@ -151,7 +218,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="Vision / min"
           value={stats.avgVisionPerMin.toFixed(2)}
           isGood={stats.avgVisionPerMin >= 1}
-          delay={0.15}
         />
 
         {/* Gold/min */}
@@ -160,7 +226,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="Gold / min"
           value={stats.avgGoldPerMin.toFixed(0)}
           isGood={stats.avgGoldPerMin >= 400}
-          delay={0.2}
         />
 
         {/* Damage/min */}
@@ -169,7 +234,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="DMG / min"
           value={`${(stats.avgDamagePerMin / 1000).toFixed(1)}k`}
           isGood={stats.avgDamagePerMin >= 600}
-          delay={0.25}
         />
 
         {/* Damage Share */}
@@ -178,7 +242,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="DMG Share"
           value={`${stats.avgDamageShare.toFixed(0)}%`}
           isGood={stats.avgDamageShare >= 20}
-          delay={0.3}
         />
 
         {/* First Blood */}
@@ -187,7 +250,6 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="First Blood"
           value={`${stats.firstBloodRate.toFixed(0)}%`}
           isGood={stats.firstBloodRate >= 20}
-          delay={0.35}
         />
 
         {/* Game Duration */}
@@ -196,97 +258,87 @@ export function StatsPanel({ puuid, region, gameName, tagLine }: StatsPanelProps
           label="Avg Game"
           value={`${stats.avgGameDuration.toFixed(0)}m`}
           neutral
-          delay={0.4}
-        />
-      </div>
-
-      {/* Advanced Stats Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-      >
-        {/* Combat Stats */}
-        <DetailedStatGroup
-          title="Combat"
-          icon={<Sword className="h-4 w-4" />}
-          stats={[
-            { label: 'Solo Kills', value: stats.avgSoloKills?.toFixed(1) || '—', highlight: (stats.avgSoloKills || 0) >= 1 },
-            { label: 'Skillshots Hit', value: stats.avgSkillshotsHit?.toFixed(0) || '—' },
-            { label: 'Skillshots Dodged', value: stats.avgSkillshotsDodged?.toFixed(0) || '—' },
-            { label: 'Multi-Kill Games', value: `${stats.multiKillRate.toFixed(0)}%`, highlight: stats.multiKillRate >= 30 },
-            { label: 'Avg Damage Dealt', value: `${(stats.avgDamageDealt / 1000).toFixed(1)}k` },
-            { label: 'Avg Damage Taken', value: `${(stats.avgDamageTaken / 1000).toFixed(1)}k` },
-          ]}
-        />
-
-        {/* Economy Stats */}
-        <DetailedStatGroup
-          title="Economy"
-          icon={<Coins className="h-4 w-4" />}
-          stats={[
-            { label: 'Avg Gold Earned', value: `${(stats.avgGoldEarned / 1000).toFixed(1)}k` },
-            { label: 'Gold Share', value: `${stats.avgGoldShare.toFixed(0)}%` },
-            { label: 'Avg CS', value: stats.avgCS.toFixed(0) },
-            { label: 'Turret Plates', value: stats.avgTurretPlatesTaken?.toFixed(1) || '—', highlight: (stats.avgTurretPlatesTaken || 0) >= 1 },
-            { label: 'First Tower', value: `${stats.firstTowerRate.toFixed(0)}%`, highlight: stats.firstTowerRate >= 25 },
-            { label: 'Early Gold Adv', value: stats.avgEarlyGoldAdvantage?.toFixed(0) || '—' },
-          ]}
-        />
-
-        {/* Vision Stats */}
-        <DetailedStatGroup
-          title="Vision"
-          icon={<Eye className="h-4 w-4" />}
-          stats={[
-            { label: 'Avg Vision Score', value: stats.avgVisionScore.toFixed(0) },
-            { label: 'Control Wards', value: stats.avgControlWardsPlaced?.toFixed(1) || '—', highlight: (stats.avgControlWardsPlaced || 0) >= 2 },
-            { label: 'Wards Killed', value: stats.avgWardsKilled?.toFixed(1) || '—' },
-            { label: 'Vision / min', value: stats.avgVisionPerMin.toFixed(2) },
-          ]}
-        />
-
-        {/* Objectives Stats */}
-        <DetailedStatGroup
-          title="Objectives"
-          icon={<Target className="h-4 w-4" />}
-          stats={[
-            { label: 'Dragon Takedowns', value: stats.avgDragonTakedowns?.toFixed(1) || '—' },
-            { label: 'Objective Part.', value: stats.objectiveParticipation > 0 ? stats.objectiveParticipation.toFixed(1) : '—' },
-            { label: 'First Tower Rate', value: `${stats.firstTowerRate.toFixed(0)}%` },
-            { label: 'First Blood Rate', value: `${stats.firstBloodRate.toFixed(0)}%` },
-          ]}
         />
       </motion.div>
 
+      {/* Advanced Stats Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Combat Stats */}
+        <motion.div variants={sectionVariants}>
+          <DetailedStatGroup
+            title="Combat"
+            icon={<Sword className="h-4 w-4" />}
+            stats={[
+              { label: 'Solo Kills', value: stats.avgSoloKills?.toFixed(1) || '—', highlight: (stats.avgSoloKills || 0) >= 1 },
+              { label: 'Skillshots Hit', value: stats.avgSkillshotsHit?.toFixed(0) || '—' },
+              { label: 'Skillshots Dodged', value: stats.avgSkillshotsDodged?.toFixed(0) || '—' },
+              { label: 'Multi-Kill Games', value: `${stats.multiKillRate.toFixed(0)}%`, highlight: stats.multiKillRate >= 30 },
+              { label: 'Avg Damage Dealt', value: `${(stats.avgDamageDealt / 1000).toFixed(1)}k` },
+              { label: 'Avg Damage Taken', value: `${(stats.avgDamageTaken / 1000).toFixed(1)}k` },
+            ]}
+          />
+        </motion.div>
+
+        {/* Economy Stats */}
+        <motion.div variants={sectionVariants}>
+          <DetailedStatGroup
+            title="Economy"
+            icon={<Coins className="h-4 w-4" />}
+            stats={[
+              { label: 'Avg Gold Earned', value: `${(stats.avgGoldEarned / 1000).toFixed(1)}k` },
+              { label: 'Gold Share', value: `${stats.avgGoldShare.toFixed(0)}%` },
+              { label: 'Avg CS', value: stats.avgCS.toFixed(0) },
+              { label: 'Turret Plates', value: stats.avgTurretPlatesTaken?.toFixed(1) || '—', highlight: (stats.avgTurretPlatesTaken || 0) >= 1 },
+              { label: 'First Tower', value: `${stats.firstTowerRate.toFixed(0)}%`, highlight: stats.firstTowerRate >= 25 },
+              { label: 'Early Gold Adv', value: stats.avgEarlyGoldAdvantage?.toFixed(0) || '—' },
+            ]}
+          />
+        </motion.div>
+
+        {/* Vision Stats */}
+        <motion.div variants={sectionVariants}>
+          <DetailedStatGroup
+            title="Vision"
+            icon={<Eye className="h-4 w-4" />}
+            stats={[
+              { label: 'Avg Vision Score', value: stats.avgVisionScore.toFixed(0) },
+              { label: 'Control Wards', value: stats.avgControlWardsPlaced?.toFixed(1) || '—', highlight: (stats.avgControlWardsPlaced || 0) >= 2 },
+              { label: 'Wards Killed', value: stats.avgWardsKilled?.toFixed(1) || '—' },
+              { label: 'Vision / min', value: stats.avgVisionPerMin.toFixed(2) },
+            ]}
+          />
+        </motion.div>
+
+        {/* Objectives Stats */}
+        <motion.div variants={sectionVariants}>
+          <DetailedStatGroup
+            title="Objectives"
+            icon={<Target className="h-4 w-4" />}
+            stats={[
+              { label: 'Dragon Takedowns', value: stats.avgDragonTakedowns?.toFixed(1) || '—' },
+              { label: 'Objective Part.', value: stats.objectiveParticipation > 0 ? stats.objectiveParticipation.toFixed(1) : '—' },
+              { label: 'First Tower Rate', value: `${stats.firstTowerRate.toFixed(0)}%` },
+              { label: 'First Blood Rate', value: `${stats.firstBloodRate.toFixed(0)}%` },
+            ]}
+          />
+        </motion.div>
+      </div>
+
       {/* Role Breakdown */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
+      <motion.div variants={sectionVariants}>
         <RoleBreakdown roleStats={analysis.roleStats} />
       </motion.div>
 
       {/* Champion Stats Table */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-      >
+      <motion.div variants={sectionVariants}>
         <ChampionStatsTable champions={analysis.championAnalysis} />
       </motion.div>
 
       {/* Trends Visualization */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6 }}
-      >
+      <motion.div variants={sectionVariants}>
         <TrendsSection trends={analysis.trends} />
       </motion.div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -296,7 +348,6 @@ function StatCard({
   value,
   isGood,
   neutral,
-  delay = 0,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -307,9 +358,18 @@ function StatCard({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
+      variants={{
+        hidden: { opacity: 0, y: 12, scale: 0.96 },
+        visible: {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          transition: {
+            duration: 0.3,
+            ease: [0.25, 0.46, 0.45, 0.94] as const
+          }
+        }
+      }}
       className="relative overflow-hidden rounded-xl border border-border/50 bg-card p-4 hover:border-primary/30 transition-colors"
     >
       <div className="flex items-center gap-1.5 text-muted-foreground mb-2">
