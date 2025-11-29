@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getLiveGame, getRanks, getSummoner } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getAccountByPuuid } from '@/lib/riot-api';
+import { assignTeamRoles } from '@/lib/constants/champion-roles';
 
 interface Params {
   params: Promise<{
@@ -37,7 +38,42 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Enrich participant data with ranks
+    // Split participants by team for role assignment
+    const blueTeam = liveGame.participants
+      .filter(p => p.teamId === 100)
+      .map((p, idx) => ({
+        championId: p.championId,
+        spell1Id: p.spell1Id,
+        spell2Id: p.spell2Id,
+        index: idx,
+        puuid: p.puuid,
+      }));
+    const redTeam = liveGame.participants
+      .filter(p => p.teamId === 200)
+      .map((p, idx) => ({
+        championId: p.championId,
+        spell1Id: p.spell1Id,
+        spell2Id: p.spell2Id,
+        index: idx + 5,
+        puuid: p.puuid,
+      }));
+
+    // Assign roles using champion position rates + summoner spells
+    const blueRoles = await assignTeamRoles(blueTeam);
+    const redRoles = await assignTeamRoles(redTeam);
+
+    // Create puuid to role mapping
+    const puuidToRole = new Map<string, string>();
+    for (const player of blueTeam) {
+      const role = blueRoles.get(player.index);
+      if (role) puuidToRole.set(player.puuid, role);
+    }
+    for (const player of redTeam) {
+      const role = redRoles.get(player.index);
+      if (role) puuidToRole.set(player.puuid, role);
+    }
+
+    // Enrich participant data with ranks and roles
     const enrichedParticipants = await Promise.all(
       liveGame.participants.map(async (participant) => {
         try {
@@ -52,10 +88,14 @@ export async function GET(request: NextRequest, { params }: Params) {
 
           const soloRank = ranks.find(r => r.queueType === 'RANKED_SOLO_5x5');
 
+          // Get assigned role
+          const assignedRole = puuidToRole.get(participant.puuid);
+
           return {
             ...participant,
             gameName: account.gameName,
             tagLine: account.tagLine,
+            role: assignedRole || null,
             rank: soloRank ? {
               tier: soloRank.tier,
               rank: soloRank.rank,
@@ -64,10 +104,12 @@ export async function GET(request: NextRequest, { params }: Params) {
           };
         } catch (error) {
           console.warn(`Failed to enrich participant ${participant.puuid}:`, error);
+          const assignedRole = puuidToRole.get(participant.puuid);
           return {
             ...participant,
             gameName: participant.riotId?.split('#')[0] || 'Unknown',
             tagLine: participant.riotId?.split('#')[1] || '',
+            role: assignedRole || null,
             rank: null,
           };
         }
