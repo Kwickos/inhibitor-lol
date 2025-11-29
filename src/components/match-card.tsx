@@ -2096,7 +2096,7 @@ function GoldGraphTab({
     );
   }
 
-  // Generate game story insights
+  // Generate game story insights - PLAYER FOCUSED
   const gameStory = useMemo(() => {
     if (chartData.length < 5) return null;
 
@@ -2117,118 +2117,130 @@ function GoldGraphTab({
       keyTakeaway: '',
     };
 
-    // Analyze early game (0-10 min)
+    // Get player gold at key timestamps
     const at10 = chartData.find(d => d.minute === 10) || chartData[Math.min(10, chartData.length - 1)];
-    const earlyDiff = at10?.playerGoldDiff || 0;
+    const at15 = chartData.find(d => d.minute === 15) || chartData[Math.min(15, chartData.length - 1)];
+    const at20 = chartData.find(d => d.minute === 20) || chartData[Math.min(20, chartData.length - 1)];
+    const finalData = chartData[chartData.length - 1];
 
+    const earlyDiff = at10?.playerGoldDiff || 0;
+    const midDiff = at15?.playerGoldDiff || 0;
+    const lateDiff = at20?.playerGoldDiff || 0;
+    const finalPlayerDiff = finalData?.playerGoldDiff || 0;
+
+    // Filter player-specific moments (kills, deaths, solo kills)
+    const playerMoments = keyMoments.filter(m =>
+      m.type === 'KILL' || m.type === 'SOLO_KILL' || m.description.includes('Killed by')
+    );
+    const playerKills = playerMoments.filter(m => m.isPositive);
+    const playerDeaths = playerMoments.filter(m => !m.isPositive);
+
+    // === LANING PHASE (0-10 min) ===
     if (earlyDiff >= 500) {
       story.phases.push({
-        phase: 'Early Game',
+        phase: 'Laning',
         time: '0-10 min',
-        description: `Strong lane phase with +${earlyDiff} gold lead. You dominated your lane opponent.`,
+        description: `You crushed lane with +${earlyDiff}g over your opponent.`,
         type: 'positive',
       });
     } else if (earlyDiff <= -500) {
       story.phases.push({
-        phase: 'Early Game',
+        phase: 'Laning',
         time: '0-10 min',
-        description: `Rough start with ${earlyDiff} gold deficit. You fell behind in lane.`,
+        description: `You fell ${Math.abs(earlyDiff)}g behind your opponent in lane.`,
         type: 'negative',
       });
     } else {
       story.phases.push({
-        phase: 'Early Game',
+        phase: 'Laning',
         time: '0-10 min',
-        description: 'Even lane, neither player got a significant advantage.',
+        description: 'Lane was even, no major advantage either way.',
         type: 'neutral',
       });
     }
 
-    // Analyze mid game (10-20 min)
-    const at20 = chartData.find(d => d.minute === 20) || chartData[Math.min(20, chartData.length - 1)];
-    const midTeamDiff = at20?.teamGoldDiff || 0;
-    const midPlayerDiff = at20?.playerGoldDiff || 0;
-
-    if (midTeamDiff >= 3000) {
+    // === PLAYER MOMENTUM (gold diff progression) ===
+    const goldProgression = lateDiff - earlyDiff;
+    if (goldProgression >= 800) {
       story.phases.push({
-        phase: 'Mid Game',
+        phase: 'Your Impact',
         time: '10-20 min',
-        description: `Your team built a ${(midTeamDiff / 1000).toFixed(1)}k gold lead. Good teamplay and objective control.`,
+        description: `You extended your lead by +${goldProgression}g. You stayed active on the map.`,
         type: 'positive',
       });
-    } else if (midTeamDiff <= -3000) {
+    } else if (goldProgression <= -800) {
       story.phases.push({
-        phase: 'Mid Game',
+        phase: 'Your Impact',
         time: '10-20 min',
-        description: `Your team fell ${(Math.abs(midTeamDiff) / 1000).toFixed(1)}k behind. Enemy team took control.`,
+        description: `You lost ${Math.abs(goldProgression)}g of your advantage. You may have made mistakes or missed farm.`,
         type: 'negative',
       });
-    } else {
+    }
+
+    // === KEY KILLS (player's best play) ===
+    const soloKills = playerMoments.filter(m => m.type === 'SOLO_KILL' && m.isPositive);
+    if (soloKills.length > 0) {
+      const bestSolo = soloKills[0];
       story.phases.push({
-        phase: 'Mid Game',
-        time: '10-20 min',
-        description: 'Close game with both teams trading objectives.',
-        type: 'neutral',
+        phase: 'Solo Kill',
+        time: `@${bestSolo.minute}min`,
+        description: bestSolo.description,
+        type: 'positive',
+      });
+    } else if (playerKills.length > 0) {
+      const firstKill = playerKills[0];
+      story.phases.push({
+        phase: 'First Blood',
+        time: `@${firstKill.minute}min`,
+        description: firstKill.description,
+        type: 'positive',
       });
     }
 
-    // Analyze turning points from keyMoments
-    const bigMoments = keyMoments.filter(m => Math.abs(m.change) >= 1000 || m.type === 'TEAMFIGHT');
-    if (bigMoments.length > 0) {
-      const worstMoment = bigMoments.reduce((worst, m) =>
-        m.change < (worst?.change || 0) ? m : worst
-      , bigMoments[0]);
+    // === KEY DEATHS (player's worst mistake) ===
+    if (playerDeaths.length > 0) {
+      // Find earliest death or most impactful death
+      const worstDeath = playerDeaths.reduce((worst, d) =>
+        Math.abs(d.change) > Math.abs(worst.change) ? d : worst
+      , playerDeaths[0]);
 
-      const bestMoment = bigMoments.reduce((best, m) =>
-        m.change > (best?.change || 0) ? m : best
-      , bigMoments[0]);
-
-      if (worstMoment && worstMoment.change < -500) {
-        story.phases.push({
-          phase: 'Key Mistake',
-          time: `@${worstMoment.minute}min`,
-          description: worstMoment.description,
-          type: 'negative',
-        });
-      }
-
-      if (bestMoment && bestMoment.change > 500) {
-        story.phases.push({
-          phase: 'Key Play',
-          time: `@${bestMoment.minute}min`,
-          description: bestMoment.description,
-          type: 'positive',
-        });
-      }
+      story.phases.push({
+        phase: 'Mistake',
+        time: `@${worstDeath.minute}min`,
+        description: worstDeath.description,
+        type: 'negative',
+      });
     }
 
-    // Final verdict
-    const finalDiff = chartData[chartData.length - 1]?.teamGoldDiff || 0;
-    const hadEarlyLead = earlyDiff >= 300;
-    const hadMidLead = midTeamDiff >= 1000;
-    const wasAhead = hadEarlyLead || hadMidLead;
+    // === VERDICT based on player performance ===
+    const hadLaneLead = earlyDiff >= 300;
+    const endedAhead = finalPlayerDiff >= 0;
+    const totalDeaths = playerDeaths.length;
 
-    // Determine if it was a throw or comeback
-    if (finalDiff < 0 && wasAhead) {
-      story.verdict = 'You had a lead but lost it. Focus on closing out games when ahead.';
+    if (hadLaneLead && !endedAhead) {
+      story.verdict = 'You won lane but gave up your lead. Focus on staying safe when ahead.';
       story.verdictType = 'negative';
-      story.keyTakeaway = 'When ahead, play for objectives not kills. Vision control is key.';
-    } else if (finalDiff > 0 && !wasAhead) {
-      story.verdict = 'Great comeback! You stayed focused and found your opportunity.';
+      story.keyTakeaway = 'Avoid risky plays when you\'re already winning.';
+    } else if (!hadLaneLead && endedAhead) {
+      story.verdict = 'You recovered from a rough lane and outscaled your opponent.';
       story.verdictType = 'positive';
-      story.keyTakeaway = 'You showed mental fortitude and punished enemy mistakes.';
-    } else if (finalDiff > 0 && wasAhead) {
-      story.verdict = 'Clean game. You built a lead and closed it out.';
+      story.keyTakeaway = 'Good mental - you farmed up and found your moment.';
+    } else if (hadLaneLead && endedAhead) {
+      story.verdict = 'You dominated your opponent from start to finish.';
       story.verdictType = 'positive';
-      story.keyTakeaway = 'Keep this up - consistent play wins games.';
-    } else if (finalDiff < 0 && !wasAhead) {
-      story.verdict = 'Tough game. You fell behind early and couldn\'t recover.';
+      story.keyTakeaway = 'Clean performance. Keep this up.';
+    } else if (totalDeaths >= 4) {
+      story.verdict = 'You died too many times. Each death sets you further behind.';
       story.verdictType = 'negative';
-      story.keyTakeaway = 'Focus on your early game to avoid playing from behind.';
+      story.keyTakeaway = 'Play safer - dying less is the easiest way to climb.';
+    } else if (!hadLaneLead && !endedAhead) {
+      story.verdict = 'Tough matchup. You were behind most of the game.';
+      story.verdictType = 'negative';
+      story.keyTakeaway = 'Focus on not falling behind early - CS and safe trades.';
     } else {
-      story.verdict = 'Close game that could have gone either way.';
+      story.verdict = 'Even performance against your lane opponent.';
       story.verdictType = 'neutral';
-      story.keyTakeaway = 'Small advantages matter. Focus on not making mistakes.';
+      story.keyTakeaway = 'Small edges matter - look for opportunities to get ahead.';
     }
 
     return story;
