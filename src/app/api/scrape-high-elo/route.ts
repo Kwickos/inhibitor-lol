@@ -9,6 +9,7 @@ import {
   getMatchIds,
   getMatch,
   getSummonerByPuuid,
+  getAccountByPuuid,
 } from '@/lib/riot-api';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
     let playersProcessed = 0;
     let matchesStored = 0;
     let ranksStored = 0;
+    let summonersStored = 0;
     const errors: string[] = [];
 
     for (const player of selectedPlayers) {
@@ -131,6 +133,42 @@ export async function POST(request: NextRequest) {
             },
           });
         ranksStored++;
+
+        // Fetch and store summoner info for search suggestions
+        try {
+          const [account, summoner] = await Promise.all([
+            getAccountByPuuid(player.puuid, region),
+            getSummonerByPuuid(player.puuid, region),
+          ]);
+
+          await db
+            .insert(summoners)
+            .values({
+              puuid: player.puuid,
+              gameName: account.gameName,
+              tagLine: account.tagLine,
+              region: region,
+              summonerId: summoner.id || player.summonerId,
+              profileIconId: summoner.profileIconId,
+              summonerLevel: summoner.summonerLevel,
+              updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: summoners.puuid,
+              set: {
+                gameName: account.gameName,
+                tagLine: account.tagLine,
+                region: region,
+                summonerId: summoner.id || player.summonerId,
+                profileIconId: summoner.profileIconId,
+                summonerLevel: summoner.summonerLevel,
+                updatedAt: new Date(),
+              },
+            });
+          summonersStored++;
+        } catch (summonerError) {
+          console.warn(`Failed to fetch summoner info for ${player.puuid}:`, summonerError);
+        }
 
         // Fetch recent ranked matches
         const matchIds = await getMatchIds(player.puuid, region, {
@@ -280,6 +318,7 @@ export async function POST(request: NextRequest) {
       region,
       playersProcessed,
       ranksStored,
+      summonersStored,
       matchesStored,
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
     });
