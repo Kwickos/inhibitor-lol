@@ -2096,14 +2096,216 @@ function GoldGraphTab({
     );
   }
 
+  // Generate game story insights
+  const gameStory = useMemo(() => {
+    if (chartData.length < 5) return null;
+
+    const story: {
+      verdict: string;
+      verdictType: 'positive' | 'negative' | 'neutral';
+      phases: Array<{
+        phase: string;
+        time: string;
+        description: string;
+        type: 'positive' | 'negative' | 'neutral';
+      }>;
+      keyTakeaway: string;
+    } = {
+      verdict: '',
+      verdictType: 'neutral',
+      phases: [],
+      keyTakeaway: '',
+    };
+
+    // Analyze early game (0-10 min)
+    const at10 = chartData.find(d => d.minute === 10) || chartData[Math.min(10, chartData.length - 1)];
+    const earlyDiff = at10?.playerGoldDiff || 0;
+
+    if (earlyDiff >= 500) {
+      story.phases.push({
+        phase: 'Early Game',
+        time: '0-10 min',
+        description: `Strong lane phase with +${earlyDiff} gold lead. You dominated your lane opponent.`,
+        type: 'positive',
+      });
+    } else if (earlyDiff <= -500) {
+      story.phases.push({
+        phase: 'Early Game',
+        time: '0-10 min',
+        description: `Rough start with ${earlyDiff} gold deficit. You fell behind in lane.`,
+        type: 'negative',
+      });
+    } else {
+      story.phases.push({
+        phase: 'Early Game',
+        time: '0-10 min',
+        description: 'Even lane, neither player got a significant advantage.',
+        type: 'neutral',
+      });
+    }
+
+    // Analyze mid game (10-20 min)
+    const at20 = chartData.find(d => d.minute === 20) || chartData[Math.min(20, chartData.length - 1)];
+    const midTeamDiff = at20?.teamGoldDiff || 0;
+    const midPlayerDiff = at20?.playerGoldDiff || 0;
+
+    if (midTeamDiff >= 3000) {
+      story.phases.push({
+        phase: 'Mid Game',
+        time: '10-20 min',
+        description: `Your team built a ${(midTeamDiff / 1000).toFixed(1)}k gold lead. Good teamplay and objective control.`,
+        type: 'positive',
+      });
+    } else if (midTeamDiff <= -3000) {
+      story.phases.push({
+        phase: 'Mid Game',
+        time: '10-20 min',
+        description: `Your team fell ${(Math.abs(midTeamDiff) / 1000).toFixed(1)}k behind. Enemy team took control.`,
+        type: 'negative',
+      });
+    } else {
+      story.phases.push({
+        phase: 'Mid Game',
+        time: '10-20 min',
+        description: 'Close game with both teams trading objectives.',
+        type: 'neutral',
+      });
+    }
+
+    // Analyze turning points from keyMoments
+    const bigMoments = keyMoments.filter(m => Math.abs(m.change) >= 1000 || m.type === 'TEAMFIGHT');
+    if (bigMoments.length > 0) {
+      const worstMoment = bigMoments.reduce((worst, m) =>
+        m.change < (worst?.change || 0) ? m : worst
+      , bigMoments[0]);
+
+      const bestMoment = bigMoments.reduce((best, m) =>
+        m.change > (best?.change || 0) ? m : best
+      , bigMoments[0]);
+
+      if (worstMoment && worstMoment.change < -500) {
+        story.phases.push({
+          phase: 'Key Mistake',
+          time: `@${worstMoment.minute}min`,
+          description: worstMoment.description,
+          type: 'negative',
+        });
+      }
+
+      if (bestMoment && bestMoment.change > 500) {
+        story.phases.push({
+          phase: 'Key Play',
+          time: `@${bestMoment.minute}min`,
+          description: bestMoment.description,
+          type: 'positive',
+        });
+      }
+    }
+
+    // Final verdict
+    const finalDiff = chartData[chartData.length - 1]?.teamGoldDiff || 0;
+    const hadEarlyLead = earlyDiff >= 300;
+    const hadMidLead = midTeamDiff >= 1000;
+    const wasAhead = hadEarlyLead || hadMidLead;
+
+    // Determine if it was a throw or comeback
+    if (finalDiff < 0 && wasAhead) {
+      story.verdict = 'You had a lead but lost it. Focus on closing out games when ahead.';
+      story.verdictType = 'negative';
+      story.keyTakeaway = 'When ahead, play for objectives not kills. Vision control is key.';
+    } else if (finalDiff > 0 && !wasAhead) {
+      story.verdict = 'Great comeback! You stayed focused and found your opportunity.';
+      story.verdictType = 'positive';
+      story.keyTakeaway = 'You showed mental fortitude and punished enemy mistakes.';
+    } else if (finalDiff > 0 && wasAhead) {
+      story.verdict = 'Clean game. You built a lead and closed it out.';
+      story.verdictType = 'positive';
+      story.keyTakeaway = 'Keep this up - consistent play wins games.';
+    } else if (finalDiff < 0 && !wasAhead) {
+      story.verdict = 'Tough game. You fell behind early and couldn\'t recover.';
+      story.verdictType = 'negative';
+      story.keyTakeaway = 'Focus on your early game to avoid playing from behind.';
+    } else {
+      story.verdict = 'Close game that could have gone either way.';
+      story.verdictType = 'neutral';
+      story.keyTakeaway = 'Small advantages matter. Focus on not making mistakes.';
+    }
+
+    return story;
+  }, [chartData, keyMoments]);
+
   return (
-    <GoldGraph
-      chartData={chartData}
-      objectiveMarkers={objectiveMarkers}
-      teamfights={teamfights || undefined}
-      keyMoments={keyMoments}
-      playerTeamId={playerTeamId}
-    />
+    <div className="space-y-4">
+      <GoldGraph
+        chartData={chartData}
+        objectiveMarkers={objectiveMarkers}
+        teamfights={teamfights || undefined}
+        keyMoments={keyMoments}
+        playerTeamId={playerTeamId}
+      />
+
+      {/* Game Story Section */}
+      {gameStory && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-4"
+        >
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h4 className="font-semibold text-sm">Game Story</h4>
+          </div>
+
+          {/* Verdict */}
+          <div className={cn(
+            'p-3 rounded-lg border',
+            gameStory.verdictType === 'positive'
+              ? 'bg-primary/5 border-primary/20'
+              : gameStory.verdictType === 'negative'
+                ? 'bg-destructive/5 border-destructive/20'
+                : 'bg-muted/30 border-border/30'
+          )}>
+            <p className={cn(
+              'text-sm font-medium',
+              gameStory.verdictType === 'positive' ? 'text-primary' :
+              gameStory.verdictType === 'negative' ? 'text-destructive' : 'text-foreground'
+            )}>
+              {gameStory.verdict}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {gameStory.keyTakeaway}
+            </p>
+          </div>
+
+          {/* Timeline phases */}
+          <div className="space-y-2">
+            {gameStory.phases.map((phase, idx) => (
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 * idx }}
+                className="flex items-start gap-3"
+              >
+                <div className={cn(
+                  'w-2 h-2 rounded-full mt-1.5 shrink-0',
+                  phase.type === 'positive' ? 'bg-primary' :
+                  phase.type === 'negative' ? 'bg-destructive' : 'bg-muted-foreground'
+                )} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold">{phase.phase}</span>
+                    <span className="text-[10px] text-muted-foreground">{phase.time}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{phase.description}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </div>
   );
 }
 
