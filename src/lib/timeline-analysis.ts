@@ -1,4 +1,4 @@
-import type { TimelineFrame, TimelineEvent } from '@/types/riot';
+import type { TimelineFrame } from '@/types/riot';
 import type {
   TimelineAnalysis,
   GoldAnalysis,
@@ -9,14 +9,34 @@ import type {
   ComebackGame,
 } from '@/types/analysis';
 
-interface TimelineData {
+// Single game stats extracted from timeline (lightweight)
+interface SingleGameStats {
   matchId: string;
-  frames: TimelineFrame[];
-  participantId: number;
-  opponentId: number; // Lane opponent
-  teamId: number;
   win: boolean;
-  gameDuration: number;
+  // Gold stats
+  goldAt10: number | null;
+  goldAt15: number | null;
+  goldAt20: number | null;
+  goldDiffAt10: number | null;
+  goldDiffAt15: number | null;
+  goldDiffAt20: number | null;
+  goldFromKills: number;
+  goldFromCS: number;
+  // Lead stats
+  maxLead: number;
+  maxLeadMinute: number;
+  maxDeficit: number;
+  maxDeficitMinute: number;
+  throwMinute: number | null; // null if no throw
+  comebackMinute: number | null; // null if no comeback
+  // Power spike stats
+  firstItemMinute: number | null;
+  secondItemMinute: number | null;
+  thirdItemMinute: number | null;
+  levelAt10: number | null;
+  levelDiffAt10: number | null;
+  // Gold swings
+  worstGoldSwing: (GoldSwingPeriod & { severity: number }) | null;
 }
 
 // Power spike benchmarks by role (minutes to complete items)
@@ -30,88 +50,338 @@ const ITEM_BENCHMARKS: Record<string, { first: number; second: number; third: nu
 
 // Approximate gold values for completed items
 const ITEM_GOLD_THRESHOLDS = {
-  first: 3000,  // First major item
-  second: 6000, // Two items
-  third: 9500,  // Three items
+  first: 3000,
+  second: 6000,
+  third: 9500,
 };
 
-export function analyzeTimelines(
-  timelineDataList: TimelineData[],
-  role: string
-): TimelineAnalysis {
-  const goldAnalysis = analyzeGoldProgression(timelineDataList);
-  const leadAnalysis = analyzeLeadsAndThrows(timelineDataList);
-  const powerSpikeAnalysis = analyzePowerSpikes(timelineDataList, role);
-
-  return {
-    goldAnalysis,
-    leadAnalysis,
-    powerSpikeAnalysis,
+/**
+ * Analyze a single timeline and extract all needed stats
+ * This processes the timeline immediately and doesn't store frames
+ */
+export function analyzeSingleTimeline(
+  matchId: string,
+  frames: TimelineFrame[],
+  participantId: number,
+  opponentId: number,
+  win: boolean,
+  gameDuration: number
+): SingleGameStats {
+  const stats: SingleGameStats = {
+    matchId,
+    win,
+    goldAt10: null,
+    goldAt15: null,
+    goldAt20: null,
+    goldDiffAt10: null,
+    goldDiffAt15: null,
+    goldDiffAt20: null,
+    goldFromKills: 0,
+    goldFromCS: 0,
+    maxLead: 0,
+    maxLeadMinute: 0,
+    maxDeficit: 0,
+    maxDeficitMinute: 0,
+    throwMinute: null,
+    comebackMinute: null,
+    firstItemMinute: null,
+    secondItemMinute: null,
+    thirdItemMinute: null,
+    levelAt10: null,
+    levelDiffAt10: null,
+    worstGoldSwing: null,
   };
-}
 
-function analyzeGoldProgression(timelineDataList: TimelineData[]): GoldAnalysis {
-  if (timelineDataList.length === 0) {
-    return getEmptyGoldAnalysis();
+  // Process frames once to extract all stats
+  let prevGold = 0;
+  let prevMinute = 0;
+  let worstSwingSeverity = 0;
+
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    const minute = Math.floor(frame.timestamp / 60000);
+    const playerFrame = frame.participantFrames[participantId];
+    const opponentFrame = frame.participantFrames[opponentId];
+
+    if (!playerFrame) continue;
+
+    const playerGold = playerFrame.totalGold || 0;
+    const opponentGold = opponentFrame?.totalGold || 0;
+    const goldDiff = playerGold - opponentGold;
+
+    // Gold at key timestamps (within 30s tolerance)
+    if (minute >= 10 && minute <= 10 && stats.goldAt10 === null) {
+      stats.goldAt10 = playerGold;
+      stats.goldDiffAt10 = goldDiff;
+      stats.levelAt10 = playerFrame.level || 0;
+      stats.levelDiffAt10 = (playerFrame.level || 0) - (opponentFrame?.level || 0);
+    }
+    if (minute >= 15 && minute <= 15 && stats.goldAt15 === null) {
+      stats.goldAt15 = playerGold;
+      stats.goldDiffAt15 = goldDiff;
+    }
+    if (minute >= 20 && minute <= 20 && stats.goldAt20 === null) {
+      stats.goldAt20 = playerGold;
+      stats.goldDiffAt20 = goldDiff;
+    }
+
+    // Track max lead and deficit
+    if (goldDiff > stats.maxLead) {
+      stats.maxLead = goldDiff;
+      stats.maxLeadMinute = minute;
+    }
+    if (goldDiff < -stats.maxDeficit) {
+      stats.maxDeficit = -goldDiff;
+      stats.maxDeficitMinute = minute;
+    }
+
+    // Item spike timing
+    if (playerGold >= ITEM_GOLD_THRESHOLDS.first && stats.firstItemMinute === null) {
+      stats.firstItemMinute = frame.timestamp / 60000;
+    }
+    if (playerGold >= ITEM_GOLD_THRESHOLDS.second && stats.secondItemMinute === null) {
+      stats.secondItemMinute = frame.timestamp / 60000;
+    }
+    if (playerGold >= ITEM_GOLD_THRESHOLDS.third && stats.thirdItemMinute === null) {
+      stats.thirdItemMinute = frame.timestamp / 60000;
+    }
+
+    // Gold swing detection (check every 5 minutes)
+    if (minute > 0 && minute % 5 === 0 && minute !== prevMinute) {
+      const goldGained = playerGold - prevGold;
+      const expectedGold = 2000; // ~400 GPM for 5 min
+
+      if (goldGained < expectedGold * 0.5) {
+        const goldLost = expectedGold - goldGained;
+        if (goldLost > worstSwingSeverity) {
+          worstSwingSeverity = goldLost;
+
+          // Determine reason
+          const prevFrame = frames[Math.max(0, i - 5)] || frame;
+          const prevCS = (prevFrame.participantFrames[participantId]?.minionsKilled || 0) +
+                        (prevFrame.participantFrames[participantId]?.jungleMinionsKilled || 0);
+          const currCS = (playerFrame.minionsKilled || 0) + (playerFrame.jungleMinionsKilled || 0);
+          const csDiff = currCS - prevCS;
+
+          stats.worstGoldSwing = {
+            matchId,
+            startMinute: minute - 5,
+            endMinute: minute,
+            goldLost,
+            reason: csDiff < 20 ? 'cs_deficit' : 'mixed',
+            details: `Only gained ${goldGained}g (expected ~${expectedGold}g)`,
+            severity: goldLost,
+          };
+        }
+      }
+      prevGold = playerGold;
+      prevMinute = minute;
+    }
+
+    // Initialize prevGold on first frame
+    if (i === 0) {
+      prevGold = playerGold;
+    }
   }
 
-  let totalGoldAt10 = 0;
-  let totalGoldAt15 = 0;
-  let totalGoldAt20 = 0;
+  // Detect throw (had 2k+ lead but lost)
+  if (stats.maxLead >= 2000 && !win) {
+    // Find when throw happened
+    for (const frame of frames) {
+      const minute = Math.floor(frame.timestamp / 60000);
+      if (minute > stats.maxLeadMinute) {
+        const playerGold = frame.participantFrames[participantId]?.totalGold || 0;
+        const opponentGold = frame.participantFrames[opponentId]?.totalGold || 0;
+        if (playerGold - opponentGold <= 0) {
+          stats.throwMinute = minute;
+          break;
+        }
+      }
+    }
+    if (stats.throwMinute === null) {
+      stats.throwMinute = stats.maxLeadMinute;
+    }
+  }
+
+  // Detect comeback (was 2k+ behind but won)
+  if (stats.maxDeficit >= 2000 && win) {
+    // Find when comeback happened
+    for (const frame of frames) {
+      const minute = Math.floor(frame.timestamp / 60000);
+      if (minute > stats.maxDeficitMinute) {
+        const playerGold = frame.participantFrames[participantId]?.totalGold || 0;
+        const opponentGold = frame.participantFrames[opponentId]?.totalGold || 0;
+        if (playerGold - opponentGold >= 0) {
+          stats.comebackMinute = minute;
+          break;
+        }
+      }
+    }
+    if (stats.comebackMinute === null) {
+      stats.comebackMinute = stats.maxDeficitMinute;
+    }
+  }
+
+  // Estimate gold sources from final frame
+  const finalFrame = frames[frames.length - 1];
+  if (finalFrame) {
+    const playerFrame = finalFrame.participantFrames[participantId];
+    if (playerFrame) {
+      const totalCS = (playerFrame.minionsKilled || 0) + (playerFrame.jungleMinionsKilled || 0);
+      stats.goldFromCS = totalCS * 20;
+      const totalGold = playerFrame.totalGold || 0;
+      stats.goldFromKills = Math.max(0, totalGold - stats.goldFromCS - (gameDuration / 60 * 100));
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * Aggregate stats from multiple games into final analysis
+ */
+export function aggregateTimelineStats(
+  gameStats: SingleGameStats[],
+  role: string
+): TimelineAnalysis {
+  if (gameStats.length === 0) {
+    return {
+      goldAnalysis: getEmptyGoldAnalysis(),
+      leadAnalysis: getEmptyLeadAnalysis(),
+      powerSpikeAnalysis: getEmptyPowerSpikeAnalysis(),
+    };
+  }
+
+  const benchmarks = ITEM_BENCHMARKS[role] || ITEM_BENCHMARKS.MIDDLE;
+
+  // Aggregate gold stats
+  let totalGoldAt10 = 0, gamesAt10 = 0;
+  let totalGoldAt15 = 0, gamesAt15 = 0;
+  let totalGoldAt20 = 0, gamesAt20 = 0;
   let totalGoldDiffAt10 = 0;
   let totalGoldDiffAt15 = 0;
   let totalGoldDiffAt20 = 0;
   let totalGoldFromKills = 0;
   let totalGoldFromCS = 0;
-  let gamesAt10 = 0;
-  let gamesAt15 = 0;
-  let gamesAt20 = 0;
 
+  // Aggregate lead stats
+  let leadsAt10 = 0, leadsAt15 = 0, leadsAt20 = 0;
+  let leadAt15AndWon = 0, leadAt15Count = 0;
+  let throws = 0, throwMinuteSum = 0;
+  let comebacks = 0;
+  let totalMaxLead = 0, totalMaxDeficit = 0;
+  let biggestThrow: ThrowGame | null = null;
+  let biggestThrowSeverity = 0;
+  let bestComeback: ComebackGame | null = null;
+  let bestComebackSeverity = 0;
+
+  // Aggregate power spike stats
+  let totalFirstItem = 0, firstItemCount = 0;
+  let totalSecondItem = 0, secondItemCount = 0;
+  let totalThirdItem = 0, thirdItemCount = 0;
+  let fastSpikeWins = 0, fastSpikeGames = 0;
+  let slowSpikeWins = 0, slowSpikeGames = 0;
+  let totalLevelAt10 = 0, totalLevelDiffAt10 = 0, levelGames = 0;
+
+  // Collect worst gold swings
   const allGoldSwings: (GoldSwingPeriod & { severity: number })[] = [];
 
-  for (const data of timelineDataList) {
-    const { frames, participantId, opponentId, matchId } = data;
-
-    // Get gold at specific timestamps
-    const frame10 = getFrameAtMinute(frames, 10);
-    const frame15 = getFrameAtMinute(frames, 15);
-    const frame20 = getFrameAtMinute(frames, 20);
-
-    if (frame10) {
-      const playerGold = frame10.participantFrames[participantId]?.totalGold || 0;
-      const opponentGold = frame10.participantFrames[opponentId]?.totalGold || 0;
-      totalGoldAt10 += playerGold;
-      totalGoldDiffAt10 += playerGold - opponentGold;
+  for (const stats of gameStats) {
+    // Gold progression
+    if (stats.goldAt10 !== null) {
+      totalGoldAt10 += stats.goldAt10;
+      totalGoldDiffAt10 += stats.goldDiffAt10!;
       gamesAt10++;
+      if (stats.goldDiffAt10! > 0) leadsAt10++;
     }
-
-    if (frame15) {
-      const playerGold = frame15.participantFrames[participantId]?.totalGold || 0;
-      const opponentGold = frame15.participantFrames[opponentId]?.totalGold || 0;
-      totalGoldAt15 += playerGold;
-      totalGoldDiffAt15 += playerGold - opponentGold;
+    if (stats.goldAt15 !== null) {
+      totalGoldAt15 += stats.goldAt15;
+      totalGoldDiffAt15 += stats.goldDiffAt15!;
       gamesAt15++;
+      if (stats.goldDiffAt15! > 0) {
+        leadsAt15++;
+        leadAt15Count++;
+        if (stats.win) leadAt15AndWon++;
+      }
     }
-
-    if (frame20) {
-      const playerGold = frame20.participantFrames[participantId]?.totalGold || 0;
-      const opponentGold = frame20.participantFrames[opponentId]?.totalGold || 0;
-      totalGoldAt20 += playerGold;
-      totalGoldDiffAt20 += playerGold - opponentGold;
+    if (stats.goldAt20 !== null) {
+      totalGoldAt20 += stats.goldAt20;
+      totalGoldDiffAt20 += stats.goldDiffAt20!;
       gamesAt20++;
+      if (stats.goldDiffAt20! > 0) leadsAt20++;
     }
 
-    // Analyze gold swings (periods where player lost significant gold relative to game)
-    const swings = detectGoldSwings(frames, participantId, matchId);
-    allGoldSwings.push(...swings);
+    totalGoldFromKills += stats.goldFromKills;
+    totalGoldFromCS += stats.goldFromCS;
 
-    // Estimate gold sources
-    const { fromKills, fromCS } = estimateGoldSources(frames, participantId, data.gameDuration);
-    totalGoldFromKills += fromKills;
-    totalGoldFromCS += fromCS;
+    // Lead/throw analysis
+    totalMaxLead += stats.maxLead;
+    totalMaxDeficit += stats.maxDeficit;
+
+    if (stats.throwMinute !== null) {
+      throws++;
+      throwMinuteSum += stats.throwMinute;
+      if (stats.maxLead > biggestThrowSeverity) {
+        biggestThrowSeverity = stats.maxLead;
+        biggestThrow = {
+          matchId: stats.matchId,
+          maxLead: stats.maxLead,
+          leadAtMinute: stats.maxLeadMinute,
+          throwAtMinute: stats.throwMinute,
+          finalResult: 'loss',
+        };
+      }
+    }
+
+    if (stats.comebackMinute !== null) {
+      comebacks++;
+      if (stats.maxDeficit > bestComebackSeverity) {
+        bestComebackSeverity = stats.maxDeficit;
+        bestComeback = {
+          matchId: stats.matchId,
+          maxDeficit: stats.maxDeficit,
+          deficitAtMinute: stats.maxDeficitMinute,
+          comebackAtMinute: stats.comebackMinute,
+          finalResult: 'win',
+        };
+      }
+    }
+
+    // Power spikes
+    if (stats.firstItemMinute !== null) {
+      totalFirstItem += stats.firstItemMinute;
+      firstItemCount++;
+      if (stats.firstItemMinute <= benchmarks.first) {
+        fastSpikeGames++;
+        if (stats.win) fastSpikeWins++;
+      } else {
+        slowSpikeGames++;
+        if (stats.win) slowSpikeWins++;
+      }
+    }
+    if (stats.secondItemMinute !== null) {
+      totalSecondItem += stats.secondItemMinute;
+      secondItemCount++;
+    }
+    if (stats.thirdItemMinute !== null) {
+      totalThirdItem += stats.thirdItemMinute;
+      thirdItemCount++;
+    }
+    if (stats.levelAt10 !== null) {
+      totalLevelAt10 += stats.levelAt10;
+      totalLevelDiffAt10 += stats.levelDiffAt10!;
+      levelGames++;
+    }
+
+    // Gold swings
+    if (stats.worstGoldSwing) {
+      allGoldSwings.push(stats.worstGoldSwing);
+    }
   }
 
-  // Sort swings by severity and take worst 5
+  const count = gameStats.length;
+
+  // Sort and take worst 5 gold swings
   allGoldSwings.sort((a, b) => b.severity - a.severity);
   const worstGoldSwings: GoldSwingPeriod[] = allGoldSwings.slice(0, 5).map(s => ({
     matchId: s.matchId,
@@ -122,393 +392,50 @@ function analyzeGoldProgression(timelineDataList: TimelineData[]): GoldAnalysis 
     details: s.details,
   }));
 
-  const count = timelineDataList.length;
-
-  return {
-    avgGoldAt10: gamesAt10 > 0 ? Math.round(totalGoldAt10 / gamesAt10) : 0,
-    avgGoldAt15: gamesAt15 > 0 ? Math.round(totalGoldAt15 / gamesAt15) : 0,
-    avgGoldAt20: gamesAt20 > 0 ? Math.round(totalGoldAt20 / gamesAt20) : 0,
-    avgGoldDiffAt10: gamesAt10 > 0 ? Math.round(totalGoldDiffAt10 / gamesAt10) : 0,
-    avgGoldDiffAt15: gamesAt15 > 0 ? Math.round(totalGoldDiffAt15 / gamesAt15) : 0,
-    avgGoldDiffAt20: gamesAt20 > 0 ? Math.round(totalGoldDiffAt20 / gamesAt20) : 0,
-    avgGoldFromKills: Math.round(totalGoldFromKills / count),
-    avgGoldFromCS: Math.round(totalGoldFromCS / count),
-    avgGoldFromObjectives: 0, // Hard to track without more event processing
-    worstGoldSwings,
-    gamesWithTimeline: count,
-  };
-}
-
-function analyzeLeadsAndThrows(timelineDataList: TimelineData[]): LeadAnalysis {
-  if (timelineDataList.length === 0) {
-    return getEmptyLeadAnalysis();
-  }
-
-  let leadsAt10 = 0;
-  let leadsAt15 = 0;
-  let leadsAt20 = 0;
-  let gamesAt10 = 0;
-  let gamesAt15 = 0;
-  let gamesAt20 = 0;
-
-  let leadAt15AndWon = 0;
-  let leadAt15Count = 0;
-
-  let throws = 0;
-  let throwMinuteSum = 0;
-  let comebacks = 0;
-
-  let totalMaxLead = 0;
-  let totalMaxDeficit = 0;
-
-  let biggestThrow: (ThrowGame & { severity: number }) | null = null;
-  let bestComeback: (ComebackGame & { severity: number }) | null = null;
-
-  for (const data of timelineDataList) {
-    const { frames, participantId, opponentId, matchId, win } = data;
-
-    // Get gold diff at key timestamps
-    const frame10 = getFrameAtMinute(frames, 10);
-    const frame15 = getFrameAtMinute(frames, 15);
-    const frame20 = getFrameAtMinute(frames, 20);
-
-    if (frame10) {
-      const diff = getGoldDiff(frame10, participantId, opponentId);
-      if (diff > 0) leadsAt10++;
-      gamesAt10++;
-    }
-
-    if (frame15) {
-      const diff = getGoldDiff(frame15, participantId, opponentId);
-      if (diff > 0) {
-        leadsAt15++;
-        leadAt15Count++;
-        if (win) leadAt15AndWon++;
-      }
-      gamesAt15++;
-    }
-
-    if (frame20) {
-      const diff = getGoldDiff(frame20, participantId, opponentId);
-      if (diff > 0) leadsAt20++;
-      gamesAt20++;
-    }
-
-    // Track max lead and deficit throughout the game
-    let maxLead = 0;
-    let maxLeadMinute = 0;
-    let maxDeficit = 0;
-    let maxDeficitMinute = 0;
-
-    for (let i = 0; i < frames.length; i++) {
-      const frame = frames[i];
-      const minute = Math.floor(frame.timestamp / 60000);
-      const diff = getGoldDiff(frame, participantId, opponentId);
-
-      if (diff > maxLead) {
-        maxLead = diff;
-        maxLeadMinute = minute;
-      }
-      if (diff < -maxDeficit) {
-        maxDeficit = -diff;
-        maxDeficitMinute = minute;
-      }
-    }
-
-    totalMaxLead += maxLead;
-    totalMaxDeficit += maxDeficit;
-
-    // Detect throws (had 2k+ lead but lost)
-    if (maxLead >= 2000 && !win) {
-      throws++;
-      // Find when the throw happened (when lead disappeared)
-      let throwMinute = maxLeadMinute;
-      for (let i = 0; i < frames.length; i++) {
-        const frame = frames[i];
-        const minute = Math.floor(frame.timestamp / 60000);
-        const diff = getGoldDiff(frame, participantId, opponentId);
-        if (minute > maxLeadMinute && diff <= 0) {
-          throwMinute = minute;
-          break;
-        }
-      }
-      throwMinuteSum += throwMinute;
-
-      const severity = maxLead;
-      if (!biggestThrow || severity > biggestThrow.severity) {
-        biggestThrow = {
-          matchId,
-          maxLead,
-          leadAtMinute: maxLeadMinute,
-          throwAtMinute: throwMinute,
-          finalResult: 'loss',
-          severity,
-        };
-      }
-    }
-
-    // Detect comebacks (was 2k+ behind but won)
-    if (maxDeficit >= 2000 && win) {
-      comebacks++;
-
-      // Find when comeback happened
-      let comebackMinute = maxDeficitMinute;
-      for (let i = 0; i < frames.length; i++) {
-        const frame = frames[i];
-        const minute = Math.floor(frame.timestamp / 60000);
-        const diff = getGoldDiff(frame, participantId, opponentId);
-        if (minute > maxDeficitMinute && diff >= 0) {
-          comebackMinute = minute;
-          break;
-        }
-      }
-
-      const severity = maxDeficit;
-      if (!bestComeback || severity > bestComeback.severity) {
-        bestComeback = {
-          matchId,
-          maxDeficit,
-          deficitAtMinute: maxDeficitMinute,
-          comebackAtMinute: comebackMinute,
-          finalResult: 'win',
-          severity,
-        };
-      }
-    }
-  }
-
-  const count = timelineDataList.length;
-
-  return {
-    leadRateAt10: gamesAt10 > 0 ? (leadsAt10 / gamesAt10) * 100 : 0,
-    leadRateAt15: gamesAt15 > 0 ? (leadsAt15 / gamesAt15) * 100 : 0,
-    leadRateAt20: gamesAt20 > 0 ? (leadsAt20 / gamesAt20) * 100 : 0,
-    leadConversionRate: leadAt15Count > 0 ? (leadAt15AndWon / leadAt15Count) * 100 : 0,
-    throwRate: count > 0 ? (throws / count) * 100 : 0,
-    avgThrowMinute: throws > 0 ? throwMinuteSum / throws : 0,
-    comebackRate: count > 0 ? (comebacks / count) * 100 : 0,
-    avgMaxLead: Math.round(totalMaxLead / count),
-    avgMaxDeficit: Math.round(totalMaxDeficit / count),
-    biggestThrow: biggestThrow ? {
-      matchId: biggestThrow.matchId,
-      maxLead: biggestThrow.maxLead,
-      leadAtMinute: biggestThrow.leadAtMinute,
-      throwAtMinute: biggestThrow.throwAtMinute,
-      finalResult: 'loss',
-    } : undefined,
-    bestComeback: bestComeback ? {
-      matchId: bestComeback.matchId,
-      maxDeficit: bestComeback.maxDeficit,
-      deficitAtMinute: bestComeback.deficitAtMinute,
-      comebackAtMinute: bestComeback.comebackAtMinute,
-      finalResult: 'win',
-    } : undefined,
-  };
-}
-
-function analyzePowerSpikes(timelineDataList: TimelineData[], role: string): PowerSpikeAnalysis {
-  if (timelineDataList.length === 0) {
-    return getEmptyPowerSpikeAnalysis();
-  }
-
-  const benchmarks = ITEM_BENCHMARKS[role] || ITEM_BENCHMARKS.MIDDLE;
-
-  let totalFirstItem = 0;
-  let totalSecondItem = 0;
-  let totalThirdItem = 0;
-  let firstItemCount = 0;
-  let secondItemCount = 0;
-  let thirdItemCount = 0;
-
-  let fastSpikeWins = 0;
-  let fastSpikeGames = 0;
-  let slowSpikeWins = 0;
-  let slowSpikeGames = 0;
-
-  let totalLevelAt10 = 0;
-  let totalLevelDiffAt10 = 0;
-  let gamesAt10 = 0;
-
-  for (const data of timelineDataList) {
-    const { frames, participantId, opponentId, win } = data;
-
-    // Find item spike timings based on gold thresholds
-    let firstItemMinute = 0;
-    let secondItemMinute = 0;
-    let thirdItemMinute = 0;
-
-    for (const frame of frames) {
-      const playerFrame = frame.participantFrames[participantId];
-      if (!playerFrame) continue;
-
-      const gold = playerFrame.totalGold || 0;
-      const minute = frame.timestamp / 60000;
-
-      if (gold >= ITEM_GOLD_THRESHOLDS.first && firstItemMinute === 0) {
-        firstItemMinute = minute;
-      }
-      if (gold >= ITEM_GOLD_THRESHOLDS.second && secondItemMinute === 0) {
-        secondItemMinute = minute;
-      }
-      if (gold >= ITEM_GOLD_THRESHOLDS.third && thirdItemMinute === 0) {
-        thirdItemMinute = minute;
-      }
-    }
-
-    if (firstItemMinute > 0) {
-      totalFirstItem += firstItemMinute;
-      firstItemCount++;
-
-      // Track fast vs slow spikes
-      if (firstItemMinute <= benchmarks.first) {
-        fastSpikeGames++;
-        if (win) fastSpikeWins++;
-      } else {
-        slowSpikeGames++;
-        if (win) slowSpikeWins++;
-      }
-    }
-    if (secondItemMinute > 0) {
-      totalSecondItem += secondItemMinute;
-      secondItemCount++;
-    }
-    if (thirdItemMinute > 0) {
-      totalThirdItem += thirdItemMinute;
-      thirdItemCount++;
-    }
-
-    // Level at 10 minutes
-    const frame10 = getFrameAtMinute(frames, 10);
-    if (frame10) {
-      const playerFrame = frame10.participantFrames[participantId];
-      const opponentFrame = frame10.participantFrames[opponentId];
-      if (playerFrame && opponentFrame) {
-        totalLevelAt10 += playerFrame.level || 0;
-        totalLevelDiffAt10 += (playerFrame.level || 0) - (opponentFrame.level || 0);
-        gamesAt10++;
-      }
-    }
-  }
-
   const avgFirst = firstItemCount > 0 ? totalFirstItem / firstItemCount : 0;
   const avgSecond = secondItemCount > 0 ? totalSecondItem / secondItemCount : 0;
   const avgThird = thirdItemCount > 0 ? totalThirdItem / thirdItemCount : 0;
 
   return {
-    avgFirstItemMinute: Math.round(avgFirst * 10) / 10,
-    avgSecondItemMinute: Math.round(avgSecond * 10) / 10,
-    avgThirdItemMinute: Math.round(avgThird * 10) / 10,
-    firstItemDelta: Math.round((avgFirst - benchmarks.first) * 10) / 10,
-    secondItemDelta: Math.round((avgSecond - benchmarks.second) * 10) / 10,
-    thirdItemDelta: Math.round((avgThird - benchmarks.third) * 10) / 10,
-    winRateWithFastSpike: fastSpikeGames > 0 ? (fastSpikeWins / fastSpikeGames) * 100 : 0,
-    winRateWithSlowSpike: slowSpikeGames > 0 ? (slowSpikeWins / slowSpikeGames) * 100 : 0,
-    avgLevelAt10: gamesAt10 > 0 ? Math.round((totalLevelAt10 / gamesAt10) * 10) / 10 : 0,
-    avgLevelDiffAt10: gamesAt10 > 0 ? Math.round((totalLevelDiffAt10 / gamesAt10) * 10) / 10 : 0,
+    goldAnalysis: {
+      avgGoldAt10: gamesAt10 > 0 ? Math.round(totalGoldAt10 / gamesAt10) : 0,
+      avgGoldAt15: gamesAt15 > 0 ? Math.round(totalGoldAt15 / gamesAt15) : 0,
+      avgGoldAt20: gamesAt20 > 0 ? Math.round(totalGoldAt20 / gamesAt20) : 0,
+      avgGoldDiffAt10: gamesAt10 > 0 ? Math.round(totalGoldDiffAt10 / gamesAt10) : 0,
+      avgGoldDiffAt15: gamesAt15 > 0 ? Math.round(totalGoldDiffAt15 / gamesAt15) : 0,
+      avgGoldDiffAt20: gamesAt20 > 0 ? Math.round(totalGoldDiffAt20 / gamesAt20) : 0,
+      avgGoldFromKills: Math.round(totalGoldFromKills / count),
+      avgGoldFromCS: Math.round(totalGoldFromCS / count),
+      avgGoldFromObjectives: 0,
+      worstGoldSwings,
+      gamesWithTimeline: count,
+    },
+    leadAnalysis: {
+      leadRateAt10: gamesAt10 > 0 ? (leadsAt10 / gamesAt10) * 100 : 0,
+      leadRateAt15: gamesAt15 > 0 ? (leadsAt15 / gamesAt15) * 100 : 0,
+      leadRateAt20: gamesAt20 > 0 ? (leadsAt20 / gamesAt20) * 100 : 0,
+      leadConversionRate: leadAt15Count > 0 ? (leadAt15AndWon / leadAt15Count) * 100 : 0,
+      throwRate: count > 0 ? (throws / count) * 100 : 0,
+      avgThrowMinute: throws > 0 ? throwMinuteSum / throws : 0,
+      comebackRate: count > 0 ? (comebacks / count) * 100 : 0,
+      avgMaxLead: Math.round(totalMaxLead / count),
+      avgMaxDeficit: Math.round(totalMaxDeficit / count),
+      biggestThrow: biggestThrow || undefined,
+      bestComeback: bestComeback || undefined,
+    },
+    powerSpikeAnalysis: {
+      avgFirstItemMinute: Math.round(avgFirst * 10) / 10,
+      avgSecondItemMinute: Math.round(avgSecond * 10) / 10,
+      avgThirdItemMinute: Math.round(avgThird * 10) / 10,
+      firstItemDelta: Math.round((avgFirst - benchmarks.first) * 10) / 10,
+      secondItemDelta: Math.round((avgSecond - benchmarks.second) * 10) / 10,
+      thirdItemDelta: Math.round((avgThird - benchmarks.third) * 10) / 10,
+      winRateWithFastSpike: fastSpikeGames > 0 ? (fastSpikeWins / fastSpikeGames) * 100 : 0,
+      winRateWithSlowSpike: slowSpikeGames > 0 ? (slowSpikeWins / slowSpikeGames) * 100 : 0,
+      avgLevelAt10: levelGames > 0 ? Math.round((totalLevelAt10 / levelGames) * 10) / 10 : 0,
+      avgLevelDiffAt10: levelGames > 0 ? Math.round((totalLevelDiffAt10 / levelGames) * 10) / 10 : 0,
+    },
   };
-}
-
-// Helper functions
-
-function getFrameAtMinute(frames: TimelineFrame[], minute: number): TimelineFrame | null {
-  const targetTimestamp = minute * 60000;
-  // Find the closest frame to the target minute
-  let closest: TimelineFrame | null = null;
-  let closestDiff = Infinity;
-
-  for (const frame of frames) {
-    const diff = Math.abs(frame.timestamp - targetTimestamp);
-    if (diff < closestDiff && frame.timestamp <= targetTimestamp + 30000) {
-      closest = frame;
-      closestDiff = diff;
-    }
-  }
-
-  return closest;
-}
-
-function getGoldDiff(frame: TimelineFrame, participantId: number, opponentId: number): number {
-  const playerGold = frame.participantFrames[participantId]?.totalGold || 0;
-  const opponentGold = frame.participantFrames[opponentId]?.totalGold || 0;
-  return playerGold - opponentGold;
-}
-
-function detectGoldSwings(
-  frames: TimelineFrame[],
-  participantId: number,
-  matchId: string
-): (GoldSwingPeriod & { severity: number })[] {
-  const swings: (GoldSwingPeriod & { severity: number })[] = [];
-
-  // Look at 5-minute windows
-  for (let startMin = 0; startMin < frames.length * 60000 / frames[0]?.timestamp - 5; startMin += 5) {
-    const startFrame = getFrameAtMinute(frames, startMin);
-    const endFrame = getFrameAtMinute(frames, startMin + 5);
-
-    if (!startFrame || !endFrame) continue;
-
-    const startGold = startFrame.participantFrames[participantId]?.totalGold || 0;
-    const endGold = endFrame.participantFrames[participantId]?.totalGold || 0;
-    const goldGained = endGold - startGold;
-
-    // Expected gold in 5 minutes (rough estimate: ~400 GPM = 2000 gold per 5 min)
-    const expectedGold = 2000;
-
-    if (goldGained < expectedGold * 0.5) {
-      // Significant gold deficit in this window
-      const goldLost = expectedGold - goldGained;
-      const severity = goldLost;
-
-      // Try to determine reason
-      let reason: GoldSwingPeriod['reason'] = 'mixed';
-      const startCS = (startFrame.participantFrames[participantId]?.minionsKilled || 0) +
-                      (startFrame.participantFrames[participantId]?.jungleMinionsKilled || 0);
-      const endCS = (endFrame.participantFrames[participantId]?.minionsKilled || 0) +
-                    (endFrame.participantFrames[participantId]?.jungleMinionsKilled || 0);
-      const csDiff = endCS - startCS;
-
-      // Expected ~35-40 CS in 5 minutes for laners
-      if (csDiff < 20) {
-        reason = 'cs_deficit';
-      }
-
-      swings.push({
-        matchId,
-        startMinute: startMin,
-        endMinute: startMin + 5,
-        goldLost,
-        reason,
-        details: `Only gained ${goldGained}g (expected ~${expectedGold}g)`,
-        severity,
-      });
-    }
-  }
-
-  return swings;
-}
-
-function estimateGoldSources(
-  frames: TimelineFrame[],
-  participantId: number,
-  gameDuration: number
-): { fromKills: number; fromCS: number } {
-  // Get final frame stats
-  const finalFrame = frames[frames.length - 1];
-  if (!finalFrame) return { fromKills: 0, fromCS: 0 };
-
-  const playerFrame = finalFrame.participantFrames[participantId];
-  if (!playerFrame) return { fromKills: 0, fromCS: 0 };
-
-  const totalCS = (playerFrame.minionsKilled || 0) + (playerFrame.jungleMinionsKilled || 0);
-
-  // Approximate gold from CS (average ~20g per minion)
-  const fromCS = totalCS * 20;
-
-  // Total gold minus CS gold = kills + objectives + passive
-  const totalGold = playerFrame.totalGold || 0;
-  const fromKills = Math.max(0, totalGold - fromCS - (gameDuration / 60 * 100)); // Subtract passive gold
-
-  return { fromKills, fromCS };
 }
 
 function getEmptyGoldAnalysis(): GoldAnalysis {

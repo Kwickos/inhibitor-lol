@@ -20,10 +20,16 @@ import {
   CheckCircle2,
   Flame,
   Crosshair,
+  Clock,
+  Coins,
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
+  Timer,
 } from 'lucide-react';
 import { getChampionIconUrl } from '@/lib/riot-api';
 import { getRoleIcon } from '@/components/icons/role-icons';
-import type { PlayerAnalysis, AnalysisInsight, ImprovementSuggestion, BenchmarkMetric } from '@/types/analysis';
+import type { PlayerAnalysis, AnalysisInsight, ImprovementSuggestion, BenchmarkMetric, TimelineAnalysis } from '@/types/analysis';
 import { cn } from '@/lib/utils';
 
 interface AnalysisPanelProps {
@@ -215,6 +221,11 @@ export function AnalysisPanel({ puuid, region, gameName, tagLine }: AnalysisPane
           <RolePerformanceCompact roleStats={analysis.roleStats} />
         </div>
       </motion.div>
+
+      {/* Timeline Deep Analysis Section */}
+      {analysis.timelineAnalysis && (
+        <TimelineSection timelineAnalysis={analysis.timelineAnalysis} />
+      )}
     </div>
   );
 }
@@ -802,6 +813,338 @@ function AnalysisError({ error }: { error: string | null }) {
       <p className="text-sm text-muted-foreground max-w-md">
         {error || 'Unable to generate analysis. Please try again later.'}
       </p>
+    </div>
+  );
+}
+
+// Timeline Deep Analysis Section - Coach Style
+function TimelineSection({ timelineAnalysis }: { timelineAnalysis: TimelineAnalysis }) {
+  const { goldAnalysis, leadAnalysis, powerSpikeAnalysis } = timelineAnalysis;
+
+  // Generate coaching insights based on the data
+  const coachingInsights = generateCoachingInsights(goldAnalysis, leadAnalysis, powerSpikeAnalysis);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 }}
+      className="space-y-6"
+    >
+      {/* Section Header */}
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-xl bg-primary/10 border border-primary/20">
+          <Clock className="h-5 w-5 text-primary" />
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold">Your Game Phases</h3>
+          <p className="text-xs text-muted-foreground">
+            How you perform at different stages of the game
+          </p>
+        </div>
+      </div>
+
+      {/* Coach Insights - Main takeaways */}
+      {coachingInsights.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {coachingInsights.map((insight, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 * idx }}
+              className={cn(
+                'relative overflow-hidden rounded-xl border p-4',
+                insight.type === 'positive'
+                  ? 'border-primary/30 bg-primary/5'
+                  : insight.type === 'negative'
+                    ? 'border-destructive/30 bg-destructive/5'
+                    : 'border-border/50 bg-card'
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div className={cn(
+                  'p-1.5 rounded-lg shrink-0',
+                  insight.type === 'positive'
+                    ? 'bg-primary/20 text-primary'
+                    : insight.type === 'negative'
+                      ? 'bg-destructive/20 text-destructive'
+                      : 'bg-muted text-muted-foreground'
+                )}>
+                  {insight.icon}
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-semibold text-sm mb-1">{insight.title}</h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {insight.description}
+                  </p>
+                  {insight.tip && (
+                    <p className={cn(
+                      'text-xs mt-2 font-medium',
+                      insight.type === 'positive' ? 'text-primary' :
+                      insight.type === 'negative' ? 'text-destructive' : 'text-foreground'
+                    )}>
+                      {insight.tip}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Detailed Stats - Collapsible or secondary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Early Game */}
+        <GamePhaseCard
+          title="Early Game"
+          subtitle="0-15 minutes"
+          icon={<Zap className="h-4 w-4" />}
+          stats={[
+            {
+              label: 'Gold @ 10min',
+              value: `${(goldAnalysis.avgGoldAt10 / 1000).toFixed(1)}k`,
+              subtext: goldAnalysis.avgGoldDiffAt10 >= 0
+                ? `+${goldAnalysis.avgGoldDiffAt10} vs opponent`
+                : `${goldAnalysis.avgGoldDiffAt10} vs opponent`,
+              isGood: goldAnalysis.avgGoldDiffAt10 >= 0,
+            },
+            {
+              label: 'Lane dominance',
+              value: `${leadAnalysis.leadRateAt10.toFixed(0)}%`,
+              subtext: 'of games with lead',
+              isGood: leadAnalysis.leadRateAt10 >= 50,
+            },
+            {
+              label: 'First item timing',
+              value: `${powerSpikeAnalysis.avgFirstItemMinute.toFixed(1)}m`,
+              subtext: powerSpikeAnalysis.firstItemDelta <= 0 ? 'On pace' : `${powerSpikeAnalysis.firstItemDelta.toFixed(1)}m behind`,
+              isGood: powerSpikeAnalysis.firstItemDelta <= 0,
+            },
+          ]}
+        />
+
+        {/* Mid Game */}
+        <GamePhaseCard
+          title="Mid Game"
+          subtitle="15-25 minutes"
+          icon={<Sword className="h-4 w-4" />}
+          stats={[
+            {
+              label: 'Gold @ 20min',
+              value: `${(goldAnalysis.avgGoldAt20 / 1000).toFixed(1)}k`,
+              subtext: goldAnalysis.avgGoldDiffAt20 >= 0
+                ? `+${goldAnalysis.avgGoldDiffAt20} vs opponent`
+                : `${goldAnalysis.avgGoldDiffAt20} vs opponent`,
+              isGood: goldAnalysis.avgGoldDiffAt20 >= 0,
+            },
+            {
+              label: 'Lead conversion',
+              value: `${leadAnalysis.leadConversionRate.toFixed(0)}%`,
+              subtext: 'of leads become wins',
+              isGood: leadAnalysis.leadConversionRate >= 60,
+            },
+            {
+              label: 'Second item timing',
+              value: `${powerSpikeAnalysis.avgSecondItemMinute.toFixed(1)}m`,
+              subtext: powerSpikeAnalysis.secondItemDelta <= 0 ? 'On pace' : `${powerSpikeAnalysis.secondItemDelta.toFixed(1)}m behind`,
+              isGood: powerSpikeAnalysis.secondItemDelta <= 1,
+            },
+          ]}
+        />
+
+        {/* Late Game */}
+        <GamePhaseCard
+          title="Closing Games"
+          subtitle="Win conditions"
+          icon={<Target className="h-4 w-4" />}
+          stats={[
+            {
+              label: 'Throw rate',
+              value: `${leadAnalysis.throwRate.toFixed(0)}%`,
+              subtext: leadAnalysis.throwRate > 20 ? 'You lose won games' : 'You close out well',
+              isGood: leadAnalysis.throwRate <= 15,
+            },
+            {
+              label: 'Comeback ability',
+              value: `${leadAnalysis.comebackRate.toFixed(0)}%`,
+              subtext: 'wins from behind',
+              isGood: leadAnalysis.comebackRate >= 20,
+            },
+            {
+              label: 'Avg max lead',
+              value: `${(leadAnalysis.avgMaxLead / 1000).toFixed(1)}k`,
+              subtext: 'gold advantage peak',
+              isGood: leadAnalysis.avgMaxLead >= 1500,
+            },
+          ]}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+interface CoachingInsight {
+  type: 'positive' | 'negative' | 'neutral';
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  tip?: string;
+}
+
+function generateCoachingInsights(
+  goldAnalysis: TimelineAnalysis['goldAnalysis'],
+  leadAnalysis: TimelineAnalysis['leadAnalysis'],
+  powerSpikeAnalysis: TimelineAnalysis['powerSpikeAnalysis']
+): CoachingInsight[] {
+  const insights: CoachingInsight[] = [];
+
+  // Early game analysis
+  if (goldAnalysis.avgGoldDiffAt10 >= 300) {
+    insights.push({
+      type: 'positive',
+      icon: <Zap className="h-4 w-4" />,
+      title: 'Strong laning phase',
+      description: `You average +${goldAnalysis.avgGoldDiffAt10}g lead at 10 minutes. Your early game trading and farming are solid.`,
+      tip: 'Keep leveraging this to snowball leads.',
+    });
+  } else if (goldAnalysis.avgGoldDiffAt10 <= -300) {
+    insights.push({
+      type: 'negative',
+      icon: <Zap className="h-4 w-4" />,
+      title: 'Rough early game',
+      description: `You\'re often ${Math.abs(goldAnalysis.avgGoldDiffAt10)}g behind at 10 minutes. You may be taking bad trades or missing CS.`,
+      tip: 'Focus on safe farming and only trade when you have an advantage.',
+    });
+  }
+
+  // Throw analysis
+  if (leadAnalysis.throwRate > 25) {
+    insights.push({
+      type: 'negative',
+      icon: <AlertTriangle className="h-4 w-4" />,
+      title: 'You throw leads',
+      description: `${leadAnalysis.throwRate.toFixed(0)}% of games with a big lead end in losses. You may be forcing unnecessary fights or getting caught.`,
+      tip: 'When ahead, play for objectives not kills. Vision wins games.',
+    });
+  } else if (leadAnalysis.throwRate <= 10 && leadAnalysis.leadConversionRate >= 70) {
+    insights.push({
+      type: 'positive',
+      icon: <CheckCircle2 className="h-4 w-4" />,
+      title: 'Clean closer',
+      description: `You convert ${leadAnalysis.leadConversionRate.toFixed(0)}% of leads into wins with only ${leadAnalysis.throwRate.toFixed(0)}% throw rate. Excellent game sense.`,
+    });
+  }
+
+  // Comeback analysis
+  if (leadAnalysis.comebackRate >= 30) {
+    insights.push({
+      type: 'positive',
+      icon: <TrendingUp className="h-4 w-4" />,
+      title: 'Never give up mentality',
+      description: `You come back from deficits ${leadAnalysis.comebackRate.toFixed(0)}% of the time. You stay focused and find opportunities even when behind.`,
+    });
+  } else if (leadAnalysis.comebackRate < 10) {
+    insights.push({
+      type: 'neutral',
+      icon: <TrendingDown className="h-4 w-4" />,
+      title: 'Struggles from behind',
+      description: `Only ${leadAnalysis.comebackRate.toFixed(0)}% comeback rate. When you fall behind, you may be forcing fights or tilting.`,
+      tip: 'Farm safely, look for picks, and wait for enemy mistakes.',
+    });
+  }
+
+  // Power spike analysis
+  const avgDelta = (powerSpikeAnalysis.firstItemDelta + powerSpikeAnalysis.secondItemDelta) / 2;
+  if (avgDelta >= 2) {
+    insights.push({
+      type: 'negative',
+      icon: <Timer className="h-4 w-4" />,
+      title: 'Slow item spikes',
+      description: `You hit your power spikes ${avgDelta.toFixed(1)} minutes late on average. This means you're weaker during key fights.`,
+      tip: 'Prioritize CS over risky plays. 15 CS = 1 kill worth of gold.',
+    });
+  } else if (avgDelta <= -0.5) {
+    insights.push({
+      type: 'positive',
+      icon: <Timer className="h-4 w-4" />,
+      title: 'Fast power spikes',
+      description: `You complete items faster than expected. When you spike early, you win ${powerSpikeAnalysis.winRateWithFastSpike.toFixed(0)}% of games.`,
+    });
+  }
+
+  // Win rate with spikes
+  const spikeWinDiff = powerSpikeAnalysis.winRateWithFastSpike - powerSpikeAnalysis.winRateWithSlowSpike;
+  if (spikeWinDiff >= 20) {
+    insights.push({
+      type: 'neutral',
+      icon: <Coins className="h-4 w-4" />,
+      title: 'Spike timing matters for you',
+      description: `${spikeWinDiff.toFixed(0)}% win rate difference between fast and slow spikes. Your champion really benefits from hitting items on time.`,
+      tip: 'Every wave matters. Don\'t roam if you\'ll miss 2+ waves.',
+    });
+  }
+
+  return insights.slice(0, 4); // Max 4 insights
+}
+
+interface GamePhaseStat {
+  label: string;
+  value: string;
+  subtext: string;
+  isGood: boolean;
+}
+
+function GamePhaseCard({
+  title,
+  subtitle,
+  icon,
+  stats,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  stats: GamePhaseStat[];
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-5">
+      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-primary/5 to-transparent rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+
+      <div className="relative">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            {icon}
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm">{title}</h4>
+            <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {stats.map((stat, idx) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1 * idx }}
+              className="flex items-center justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">{stat.label}</p>
+                <p className="text-[10px] text-muted-foreground/70">{stat.subtext}</p>
+              </div>
+              <div className={cn(
+                'text-lg font-bold tabular-nums',
+                stat.isGood ? 'text-primary' : 'text-destructive'
+              )}>
+                {stat.value}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

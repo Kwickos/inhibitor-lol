@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, AlertCircle, Loader2, History, BarChart3, Radio } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader2, History, BarChart3, Radio, PieChart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/search-bar';
 import { Logo } from '@/components/logo';
@@ -13,6 +13,7 @@ import { MatchList } from '@/components/match-list';
 import { ChampionStatsCard } from '@/components/champion-stats-card';
 import { DuoPartnersCard } from '@/components/duo-partners-card';
 import { AnalysisPanel } from '@/components/analysis-panel';
+import { StatsPanel } from '@/components/stats-panel';
 import { LiveGamePanel } from '@/components/live-game-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
@@ -86,7 +87,7 @@ export default function SummonerPage({ params }: PageProps) {
   const [data, setData] = useState<SummonerData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'livegame'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'stats' | 'livegame'>('overview');
 
   // Auto-switch to live game tab when player is in game
   useEffect(() => {
@@ -198,6 +199,12 @@ export default function SummonerPage({ params }: PageProps) {
               icon={<BarChart3 className="h-4 w-4" />}
               label="Analysis"
             />
+            <TabButton
+              active={activeTab === 'stats'}
+              onClick={() => setActiveTab('stats')}
+              icon={<PieChart className="h-4 w-4" />}
+              label="Stats"
+            />
           </div>
         </div>
 
@@ -266,6 +273,22 @@ export default function SummonerPage({ params }: PageProps) {
               transition={{ duration: 0.2 }}
             >
               <AnalysisPanel
+                puuid={data.account.puuid}
+                region={region}
+                gameName={data.account.gameName}
+                tagLine={data.account.tagLine}
+              />
+            </motion.div>
+          </div>
+
+          {/* Stats Tab */}
+          <div className={cn(activeTab === 'stats' ? 'block' : 'hidden')}>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: activeTab === 'stats' ? 1 : 0, y: activeTab === 'stats' ? 0 : 10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <StatsPanel
                 puuid={data.account.puuid}
                 region={region}
                 gameName={data.account.gameName}

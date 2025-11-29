@@ -7,7 +7,7 @@ import { eq, and } from 'drizzle-orm';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getMatchTimeline } from '@/lib/riot-api';
 import type { Match, Participant, Team } from '@/types/riot';
-import { analyzeTimelines } from '@/lib/timeline-analysis';
+import { analyzeSingleTimeline, aggregateTimelineStats } from '@/lib/timeline-analysis';
 import {
   type PlayerAnalysis,
   type OverallStats,
@@ -1516,7 +1516,7 @@ function getEmptyStats(): OverallStats {
   };
 }
 
-// Timeline analysis - fetch timelines and analyze gold/lead/power spikes
+// Timeline analysis - fetch timelines ONE BY ONE and analyze to avoid memory issues
 async function calculateTimelineAnalysis(
   puuid: string,
   playerMatches: PlayerMatch[],
@@ -1532,22 +1532,17 @@ async function calculateTimelineAnalysis(
   }
   const mainRole = Object.entries(roleCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'MIDDLE';
 
-  // Fetch timelines for recent games (limit to 5 to reduce memory usage)
-  const timelineDataList: {
-    matchId: string;
-    frames: import('@/types/riot').TimelineFrame[];
-    participantId: number;
-    opponentId: number;
-    teamId: number;
-    win: boolean;
-    gameDuration: number;
-  }[] = [];
+  // Process timelines one by one to avoid memory issues
+  // We extract stats immediately and discard the frames
+  type SingleGameStats = ReturnType<typeof analyzeSingleTimeline>;
+  const gameStatsList: SingleGameStats[] = [];
 
-  // Reduce to 5 games to avoid memory issues
-  const gamesToFetch = playerMatches.slice(0, 5);
+  // Process up to 10 games one at a time
+  const gamesToFetch = playerMatches.slice(0, 10);
 
   for (const pm of gamesToFetch) {
     try {
+      // Fetch single timeline
       const timeline = await getMatchTimeline(pm.match.metadata.matchId, region);
 
       // Find participant ID for this player
@@ -1555,7 +1550,6 @@ async function calculateTimelineAnalysis(
       if (!participantMapping) continue;
 
       const participantId = participantMapping.participantId;
-      const teamId = participantId <= 5 ? 100 : 200;
 
       // Find lane opponent (same role, opposite team)
       const playerRole = normalizeRole(pm.participant.teamPosition || pm.participant.individualPosition);
@@ -1575,21 +1569,18 @@ async function calculateTimelineAnalysis(
         }
       }
 
-      // Only keep frames at 1-minute intervals to reduce memory (instead of every frame)
-      const reducedFrames = timeline.info.frames.filter((_, idx) => {
-        // Keep frames roughly every minute (frameInterval is usually ~60000ms)
-        return idx % 1 === 0; // Keep all frames for now but could reduce further
-      });
-
-      timelineDataList.push({
-        matchId: pm.match.metadata.matchId,
-        frames: reducedFrames,
+      // Extract stats immediately from this timeline (doesn't store frames)
+      const stats = analyzeSingleTimeline(
+        pm.match.metadata.matchId,
+        timeline.info.frames,
         participantId,
         opponentId,
-        teamId,
-        win: pm.participant.win,
-        gameDuration: pm.gameDuration,
-      });
+        pm.participant.win,
+        pm.gameDuration
+      );
+
+      gameStatsList.push(stats);
+      // Timeline frames are now garbage-collected
 
       // Small delay to avoid rate limiting
       await new Promise(r => setTimeout(r, 100));
@@ -1598,9 +1589,10 @@ async function calculateTimelineAnalysis(
     }
   }
 
-  if (timelineDataList.length === 0) {
+  if (gameStatsList.length === 0) {
     return undefined;
   }
 
-  return analyzeTimelines(timelineDataList, mainRole);
+  // Aggregate all the lightweight stats into final analysis
+  return aggregateTimelineStats(gameStatsList, mainRole);
 }
