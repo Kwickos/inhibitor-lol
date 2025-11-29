@@ -1220,6 +1220,9 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                   playerTeamId={participant.teamId}
                   events={timelineEvents || undefined}
                   teamfights={timelineTeamfights || undefined}
+                  participant={participant}
+                  gameDuration={match.gameDuration}
+                  isWin={match.win}
                 />
               )}
             </div>
@@ -1801,7 +1804,10 @@ function GoldGraphTab({
   currentPuuid,
   playerTeamId,
   events,
-  teamfights
+  teamfights,
+  participant,
+  gameDuration,
+  isWin
 }: {
   timelineData: TimelineFrame[] | null;
   loading: boolean;
@@ -1811,6 +1817,9 @@ function GoldGraphTab({
   playerTeamId: number;
   events?: ProcessedEvent[];
   teamfights?: Teamfight[];
+  participant: Participant;
+  gameDuration: number;
+  isWin: boolean;
 }) {
   // Process timeline data for the chart
   const chartData = useMemo(() => {
@@ -2096,155 +2105,394 @@ function GoldGraphTab({
     );
   }
 
-  // Generate game story insights - PLAYER FOCUSED
-  const gameStory = useMemo(() => {
-    if (chartData.length < 5) return null;
+  // Find opponent for comparisons
+  const opponent = useMemo(() => {
+    const currentPosition = participant.teamPosition || participant.individualPosition;
+    return allParticipants.find(p =>
+      p.teamId !== playerTeamId &&
+      (p.teamPosition === currentPosition || p.individualPosition === currentPosition)
+    );
+  }, [allParticipants, participant, playerTeamId]);
 
-    const story: {
-      verdict: string;
-      verdictType: 'positive' | 'negative' | 'neutral';
-      phases: Array<{
-        phase: string;
-        time: string;
-        description: string;
-        type: 'positive' | 'negative' | 'neutral';
-      }>;
-      keyTakeaway: string;
-    } = {
-      verdict: '',
-      verdictType: 'neutral',
-      phases: [],
-      keyTakeaway: '',
-    };
+  // Generate comprehensive coach analysis
+  const coachAnalysis = useMemo(() => {
+    const minutes = gameDuration / 60;
+    const position = participant.teamPosition || participant.individualPosition || '';
+    const isSupport = position === 'UTILITY';
+    const isJungler = position === 'JUNGLE';
+    const challenges = participant.challenges || {};
 
-    // Get player gold at key timestamps
+    // === PLAYER STATS ===
+    const cs = participant.totalMinionsKilled + participant.neutralMinionsKilled;
+    const csPerMin = cs / minutes;
+    const visionPerMin = participant.visionScore / minutes;
+    const damagePerMin = participant.totalDamageDealtToChampions / minutes;
+    const goldPerMin = participant.goldEarned / minutes;
+    const kda = participant.deaths === 0 ? participant.kills + participant.assists : (participant.kills + participant.assists) / participant.deaths;
+
+    // === OPPONENT COMPARISON ===
+    const opponentCs = opponent ? opponent.totalMinionsKilled + opponent.neutralMinionsKilled : 0;
+    const csDiff = cs - opponentCs;
+    const opponentDamage = opponent?.totalDamageDealtToChampions || 0;
+    const damageDiff = participant.totalDamageDealtToChampions - opponentDamage;
+    const opponentGold = opponent?.goldEarned || 0;
+    const goldDiff = participant.goldEarned - opponentGold;
+    const opponentVision = opponent?.visionScore || 0;
+    const visionDiff = participant.visionScore - opponentVision;
+
+    // === TEAM CONTEXT ===
+    const teammates = allParticipants.filter(p => p.teamId === playerTeamId);
+    const teamTotalKills = teammates.reduce((sum, p) => sum + p.kills, 0);
+    const teamTotalDamage = teammates.reduce((sum, p) => sum + p.totalDamageDealtToChampions, 0);
+    const killParticipation = teamTotalKills > 0 ? ((participant.kills + participant.assists) / teamTotalKills) * 100 : 0;
+    const damageShare = teamTotalDamage > 0 ? (participant.totalDamageDealtToChampions / teamTotalDamage) * 100 : 0;
+
+    // === LANING STATS from challenges ===
+    const csAt10 = challenges.laneMinionsFirst10Minutes || 0;
+    const maxCsAdvantage = challenges.maxCsAdvantageOnLaneOpponent || 0;
+    const soloKills = challenges.soloKills || 0;
+    const turretPlates = challenges.turretPlatesTaken || 0;
+
+    // === DEATH ANALYSIS ===
+    const earlyDeaths = keyMoments.filter(m => !m.isPositive && m.minute <= 10).length;
+    const lateDeaths = keyMoments.filter(m => !m.isPositive && m.minute > 20).length;
+
+    // === GET GOLD DATA FROM TIMELINE ===
     const at10 = chartData.find(d => d.minute === 10) || chartData[Math.min(10, chartData.length - 1)];
     const at15 = chartData.find(d => d.minute === 15) || chartData[Math.min(15, chartData.length - 1)];
-    const at20 = chartData.find(d => d.minute === 20) || chartData[Math.min(20, chartData.length - 1)];
     const finalData = chartData[chartData.length - 1];
+    const earlyGoldDiff = at10?.playerGoldDiff || 0;
+    const midGoldDiff = at15?.playerGoldDiff || 0;
+    const finalGoldDiff = finalData?.playerGoldDiff || 0;
 
-    const earlyDiff = at10?.playerGoldDiff || 0;
-    const midDiff = at15?.playerGoldDiff || 0;
-    const lateDiff = at20?.playerGoldDiff || 0;
-    const finalPlayerDiff = finalData?.playerGoldDiff || 0;
+    // === BUILD COACHING INSIGHTS ===
+    type InsightType = {
+      category: 'laning' | 'combat' | 'farming' | 'vision' | 'impact' | 'deaths';
+      icon: string;
+      title: string;
+      value: string;
+      detail: string;
+      type: 'positive' | 'negative' | 'neutral';
+      priority: number;
+    };
 
-    // Filter player-specific moments (kills, deaths, solo kills)
-    const playerMoments = keyMoments.filter(m =>
-      m.type === 'KILL' || m.type === 'SOLO_KILL' || m.description.includes('Killed by')
-    );
-    const playerKills = playerMoments.filter(m => m.isPositive);
-    const playerDeaths = playerMoments.filter(m => !m.isPositive);
+    const insights: InsightType[] = [];
 
-    // === LANING PHASE (0-10 min) ===
-    if (earlyDiff >= 500) {
-      story.phases.push({
-        phase: 'Laning',
-        time: '0-10 min',
-        description: `You crushed lane with +${earlyDiff}g over your opponent.`,
+    // --- LANING PHASE ---
+    if (earlyGoldDiff >= 800) {
+      insights.push({
+        category: 'laning',
+        icon: '🏆',
+        title: 'Lane Kingdom',
+        value: `+${earlyGoldDiff}g @10min`,
+        detail: `You crushed lane with ${maxCsAdvantage > 0 ? `up to ${maxCsAdvantage} CS lead` : 'strong trades'}${soloKills > 0 ? ` and ${soloKills} solo kill${soloKills > 1 ? 's' : ''}` : ''}.`,
         type: 'positive',
+        priority: 10
       });
-    } else if (earlyDiff <= -500) {
-      story.phases.push({
-        phase: 'Laning',
-        time: '0-10 min',
-        description: `You fell ${Math.abs(earlyDiff)}g behind your opponent in lane.`,
+    } else if (earlyGoldDiff >= 300) {
+      insights.push({
+        category: 'laning',
+        icon: '👍',
+        title: 'Lane Won',
+        value: `+${earlyGoldDiff}g @10min`,
+        detail: 'You had a slight advantage out of laning phase.',
+        type: 'positive',
+        priority: 7
+      });
+    } else if (earlyGoldDiff <= -800) {
+      insights.push({
+        category: 'laning',
+        icon: '⚠️',
+        title: 'Lane Lost',
+        value: `${earlyGoldDiff}g @10min`,
+        detail: earlyDeaths >= 2
+          ? `You died ${earlyDeaths} times in lane. Try safer positioning.`
+          : 'You fell behind - focus on not missing CS under tower.',
         type: 'negative',
+        priority: 10
       });
-    } else {
-      story.phases.push({
-        phase: 'Laning',
-        time: '0-10 min',
-        description: 'Lane was even, no major advantage either way.',
+    } else if (earlyGoldDiff <= -300) {
+      insights.push({
+        category: 'laning',
+        icon: '😐',
+        title: 'Lane Pressure',
+        value: `${earlyGoldDiff}g @10min`,
+        detail: 'Slight deficit early - winnable if you farm well after.',
         type: 'neutral',
+        priority: 5
       });
     }
 
-    // === PLAYER MOMENTUM (gold diff progression) ===
-    const goldProgression = lateDiff - earlyDiff;
-    if (goldProgression >= 800) {
-      story.phases.push({
-        phase: 'Your Impact',
-        time: '10-20 min',
-        description: `You extended your lead by +${goldProgression}g. You stayed active on the map.`,
+    // --- CS ANALYSIS ---
+    if (!isSupport && !isJungler) {
+      const expectedCs = minutes * 8; // Good CS is ~8/min
+      const csEfficiency = (cs / expectedCs) * 100;
+
+      if (csPerMin >= 8) {
+        insights.push({
+          category: 'farming',
+          icon: '💰',
+          title: 'CS Machine',
+          value: `${csPerMin.toFixed(1)}/min`,
+          detail: `Top tier farming with ${cs} total CS${csDiff > 20 ? ` (+${csDiff} vs opponent)` : ''}.`,
+          type: 'positive',
+          priority: 8
+        });
+      } else if (csPerMin >= 6.5) {
+        insights.push({
+          category: 'farming',
+          icon: '🌾',
+          title: 'Solid CS',
+          value: `${csPerMin.toFixed(1)}/min`,
+          detail: csDiff >= 0 ? `+${csDiff} CS vs your opponent.` : 'Keep up the farm in mid-game.',
+          type: 'neutral',
+          priority: 4
+        });
+      } else if (csPerMin < 5.5) {
+        insights.push({
+          category: 'farming',
+          icon: '📉',
+          title: 'CS Deficit',
+          value: `${csPerMin.toFixed(1)}/min`,
+          detail: `You're missing gold. Aim for 7+ CS/min. ${csDiff < -20 ? `You had ${Math.abs(csDiff)} less CS than opponent.` : ''}`,
+          type: 'negative',
+          priority: 9
+        });
+      }
+    }
+
+    // --- DAMAGE ANALYSIS ---
+    const expectedDamageShare = isSupport ? 12 : 20;
+    if (damageShare >= 28 && !isSupport) {
+      insights.push({
+        category: 'combat',
+        icon: '💥',
+        title: 'Carry Performance',
+        value: `${damageShare.toFixed(0)}% of team`,
+        detail: `You dealt ${(participant.totalDamageDealtToChampions / 1000).toFixed(1)}k damage${damageDiff > 5000 ? `, +${(damageDiff / 1000).toFixed(1)}k vs opponent` : ''}.`,
         type: 'positive',
+        priority: 8
       });
-    } else if (goldProgression <= -800) {
-      story.phases.push({
-        phase: 'Your Impact',
-        time: '10-20 min',
-        description: `You lost ${Math.abs(goldProgression)}g of your advantage. You may have made mistakes or missed farm.`,
+    } else if (damageShare < expectedDamageShare && !isSupport) {
+      insights.push({
+        category: 'combat',
+        icon: '🎯',
+        title: 'Low Damage',
+        value: `${damageShare.toFixed(0)}% of team`,
+        detail: damageDiff < -5000
+          ? `Opponent did ${(Math.abs(damageDiff) / 1000).toFixed(1)}k more damage. Fight more or hit your abilities.`
+          : 'Look for more fights or poke opportunities.',
         type: 'negative',
+        priority: 7
       });
     }
 
-    // === KEY KILLS (player's best play) ===
-    const soloKills = playerMoments.filter(m => m.type === 'SOLO_KILL' && m.isPositive);
-    if (soloKills.length > 0) {
-      const bestSolo = soloKills[0];
-      story.phases.push({
-        phase: 'Solo Kill',
-        time: `@${bestSolo.minute}min`,
-        description: bestSolo.description,
+    // --- KILL PARTICIPATION ---
+    if (killParticipation >= 70) {
+      insights.push({
+        category: 'impact',
+        icon: '🤝',
+        title: 'High Impact',
+        value: `${killParticipation.toFixed(0)}% KP`,
+        detail: 'You were involved in most of your team\'s kills.',
         type: 'positive',
+        priority: 6
       });
-    } else if (playerKills.length > 0) {
-      const firstKill = playerKills[0];
-      story.phases.push({
-        phase: 'First Blood',
-        time: `@${firstKill.minute}min`,
-        description: firstKill.description,
-        type: 'positive',
-      });
-    }
-
-    // === KEY DEATHS (player's worst mistake) ===
-    if (playerDeaths.length > 0) {
-      // Find earliest death or most impactful death
-      const worstDeath = playerDeaths.reduce((worst, d) =>
-        Math.abs(d.change) > Math.abs(worst.change) ? d : worst
-      , playerDeaths[0]);
-
-      story.phases.push({
-        phase: 'Mistake',
-        time: `@${worstDeath.minute}min`,
-        description: worstDeath.description,
+    } else if (killParticipation < 40 && !isSupport) {
+      insights.push({
+        category: 'impact',
+        icon: '👻',
+        title: 'Low Presence',
+        value: `${killParticipation.toFixed(0)}% KP`,
+        detail: 'Your team fought without you. Group more or make plays.',
         type: 'negative',
+        priority: 8
       });
     }
 
-    // === VERDICT based on player performance ===
-    const hadLaneLead = earlyDiff >= 300;
-    const endedAhead = finalPlayerDiff >= 0;
-    const totalDeaths = playerDeaths.length;
+    // --- VISION ---
+    const goodVision = isSupport ? 1.5 : 0.8;
+    if (visionPerMin >= goodVision) {
+      insights.push({
+        category: 'vision',
+        icon: '👁️',
+        title: 'Vision Control',
+        value: `${participant.visionScore} score`,
+        detail: `${participant.wardsPlaced} wards placed, ${participant.wardsKilled} cleared${visionDiff > 10 ? ` (+${visionDiff} vs opponent)` : ''}.`,
+        type: 'positive',
+        priority: 5
+      });
+    } else if (visionPerMin < 0.5 && !isJungler) {
+      insights.push({
+        category: 'vision',
+        icon: '🔦',
+        title: 'Ward More',
+        value: `${participant.visionScore} score`,
+        detail: `Only ${participant.wardsPlaced} wards all game. Buy control wards and use trinket.`,
+        type: 'negative',
+        priority: 6
+      });
+    }
 
-    if (hadLaneLead && !endedAhead) {
-      story.verdict = 'You won lane but gave up your lead. Focus on staying safe when ahead.';
-      story.verdictType = 'negative';
-      story.keyTakeaway = 'Avoid risky plays when you\'re already winning.';
-    } else if (!hadLaneLead && endedAhead) {
-      story.verdict = 'You recovered from a rough lane and outscaled your opponent.';
-      story.verdictType = 'positive';
-      story.keyTakeaway = 'Good mental - you farmed up and found your moment.';
-    } else if (hadLaneLead && endedAhead) {
-      story.verdict = 'You dominated your opponent from start to finish.';
-      story.verdictType = 'positive';
-      story.keyTakeaway = 'Clean performance. Keep this up.';
-    } else if (totalDeaths >= 4) {
-      story.verdict = 'You died too many times. Each death sets you further behind.';
-      story.verdictType = 'negative';
-      story.keyTakeaway = 'Play safer - dying less is the easiest way to climb.';
-    } else if (!hadLaneLead && !endedAhead) {
-      story.verdict = 'Tough matchup. You were behind most of the game.';
-      story.verdictType = 'negative';
-      story.keyTakeaway = 'Focus on not falling behind early - CS and safe trades.';
+    // --- DEATH ANALYSIS ---
+    if (participant.deaths === 0) {
+      insights.push({
+        category: 'deaths',
+        icon: '🛡️',
+        title: 'Deathless',
+        value: '0 deaths',
+        detail: 'Perfect survival - you never gave the enemy gold.',
+        type: 'positive',
+        priority: 9
+      });
+    } else if (participant.deaths >= 8) {
+      insights.push({
+        category: 'deaths',
+        icon: '💀',
+        title: 'Too Many Deaths',
+        value: `${participant.deaths} deaths`,
+        detail: earlyDeaths >= 3
+          ? 'Dying early snowballs the enemy. Play safer in lane.'
+          : lateDeaths >= 4
+            ? 'Late game deaths lose games. Position better in fights.'
+            : 'Each death is ~300g+ for the enemy. Play with your team.',
+        type: 'negative',
+        priority: 10
+      });
+    } else if (participant.deaths >= 5) {
+      insights.push({
+        category: 'deaths',
+        icon: '⚰️',
+        title: 'Deaths Cost Gold',
+        value: `${participant.deaths} deaths`,
+        detail: earlyDeaths >= 2
+          ? `${earlyDeaths} early deaths hurt your lane. Play back when behind.`
+          : 'Consider if fights are winnable before committing.',
+        type: 'negative',
+        priority: 7
+      });
+    }
+
+    // --- LEAD MANAGEMENT ---
+    const hadLead = earlyGoldDiff >= 500;
+    const endedAhead = finalGoldDiff >= 0;
+
+    if (hadLead && !endedAhead) {
+      insights.push({
+        category: 'impact',
+        icon: '📉',
+        title: 'Threw Lead',
+        value: `${earlyGoldDiff}g → ${finalGoldDiff}g`,
+        detail: 'You won lane but gave up your advantage. Play safer when ahead.',
+        type: 'negative',
+        priority: 10
+      });
+    } else if (!hadLead && endedAhead && finalGoldDiff >= 500) {
+      insights.push({
+        category: 'impact',
+        icon: '📈',
+        title: 'Great Recovery',
+        value: `${earlyGoldDiff}g → +${finalGoldDiff}g`,
+        detail: 'You came back from behind. Good mental and farming.',
+        type: 'positive',
+        priority: 8
+      });
+    }
+
+    // --- SOLO KILLS ---
+    if (soloKills >= 3) {
+      insights.push({
+        category: 'combat',
+        icon: '⚔️',
+        title: 'Solo Carry',
+        value: `${soloKills} solo kills`,
+        detail: 'You outplayed opponents 1v1 multiple times.',
+        type: 'positive',
+        priority: 7
+      });
+    }
+
+    // --- TURRET PLATES ---
+    if (turretPlates >= 3) {
+      insights.push({
+        category: 'laning',
+        icon: '🏰',
+        title: 'Lane Pressure',
+        value: `${turretPlates} plates`,
+        detail: 'You converted lane advantage into gold and pressure.',
+        type: 'positive',
+        priority: 6
+      });
+    }
+
+    // Sort by priority and take top insights
+    insights.sort((a, b) => b.priority - a.priority);
+    const topInsights = insights.slice(0, 6);
+
+    // === BUILD VERDICT ===
+    let verdict = '';
+    let verdictType: 'positive' | 'negative' | 'neutral' = 'neutral';
+    const recommendations: string[] = [];
+
+    // Count positive vs negative insights
+    const positiveCount = topInsights.filter(i => i.type === 'positive').length;
+    const negativeCount = topInsights.filter(i => i.type === 'negative').length;
+
+    if (isWin) {
+      if (positiveCount >= 4) {
+        verdict = 'Excellent game. You were a key factor in this win.';
+        verdictType = 'positive';
+      } else if (negativeCount >= 3) {
+        verdict = 'You won, but there\'s room to improve.';
+        verdictType = 'neutral';
+      } else {
+        verdict = 'Solid contribution to the win.';
+        verdictType = 'positive';
+      }
     } else {
-      story.verdict = 'Even performance against your lane opponent.';
-      story.verdictType = 'neutral';
-      story.keyTakeaway = 'Small edges matter - look for opportunities to get ahead.';
+      if (negativeCount >= 4) {
+        verdict = 'Tough game. Focus on the areas below to improve.';
+        verdictType = 'negative';
+      } else if (positiveCount >= 3) {
+        verdict = 'You played well, but the team couldn\'t pull it off.';
+        verdictType = 'neutral';
+      } else {
+        verdict = 'Close game. Small improvements can change the outcome.';
+        verdictType = 'neutral';
+      }
     }
 
-    return story;
-  }, [chartData, keyMoments]);
+    // Generate recommendations based on worst insights
+    const negativeInsights = topInsights.filter(i => i.type === 'negative');
+    for (const insight of negativeInsights.slice(0, 2)) {
+      if (insight.category === 'deaths') {
+        recommendations.push('Focus on dying less - play with vision and respect enemy cooldowns.');
+      } else if (insight.category === 'farming') {
+        recommendations.push('Practice last-hitting and catch side waves when safe.');
+      } else if (insight.category === 'vision') {
+        recommendations.push('Buy control wards and ward before objectives spawn.');
+      } else if (insight.category === 'combat') {
+        recommendations.push('Look for more damage opportunities in fights and skirmishes.');
+      } else if (insight.category === 'impact') {
+        recommendations.push('Be present for your team - group for objectives and fights.');
+      }
+    }
+
+    return {
+      insights: topInsights,
+      verdict,
+      verdictType,
+      recommendations,
+      stats: {
+        kda: kda.toFixed(2),
+        csPerMin: csPerMin.toFixed(1),
+        killParticipation: killParticipation.toFixed(0),
+        damageShare: damageShare.toFixed(0),
+        visionScore: participant.visionScore,
+        goldDiff: goldDiff > 0 ? `+${goldDiff}` : goldDiff.toString()
+      }
+    };
+  }, [participant, opponent, allParticipants, playerTeamId, gameDuration, chartData, keyMoments, isWin]);
 
   return (
     <div className="space-y-4">
@@ -2256,62 +2504,95 @@ function GoldGraphTab({
         playerTeamId={playerTeamId}
       />
 
-      {/* Game Story Section */}
-      {gameStory && (
+      {/* Coach Analysis Section */}
+      {coachAnalysis && coachAnalysis.insights.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-4"
         >
-          <h4 className="font-semibold text-sm">Game Story</h4>
+          <div className="flex items-center justify-between">
+            <h4 className="font-semibold text-sm">Coach Review</h4>
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span>{coachAnalysis.stats.kda} KDA</span>
+              <span>{coachAnalysis.stats.csPerMin} CS/m</span>
+              <span>{coachAnalysis.stats.killParticipation}% KP</span>
+              <span>{coachAnalysis.stats.goldDiff}g vs lane</span>
+            </div>
+          </div>
 
           {/* Verdict */}
           <div className={cn(
             'p-3 rounded-lg border',
-            gameStory.verdictType === 'positive'
+            coachAnalysis.verdictType === 'positive'
               ? 'bg-primary/5 border-primary/20'
-              : gameStory.verdictType === 'negative'
+              : coachAnalysis.verdictType === 'negative'
                 ? 'bg-destructive/5 border-destructive/20'
                 : 'bg-muted/30 border-border/30'
           )}>
             <p className={cn(
               'text-sm font-medium',
-              gameStory.verdictType === 'positive' ? 'text-primary' :
-              gameStory.verdictType === 'negative' ? 'text-destructive' : 'text-foreground'
+              coachAnalysis.verdictType === 'positive' ? 'text-primary' :
+              coachAnalysis.verdictType === 'negative' ? 'text-destructive' : 'text-foreground'
             )}>
-              {gameStory.verdict}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {gameStory.keyTakeaway}
+              {coachAnalysis.verdict}
             </p>
           </div>
 
-          {/* Timeline phases */}
-          <div className="space-y-2">
-            {gameStory.phases.map((phase, idx) => (
+          {/* Insights Grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {coachAnalysis.insights.map((insight, idx) => (
               <motion.div
                 key={idx}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 * idx }}
-                className="flex items-start gap-3"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.05 * idx }}
+                className={cn(
+                  'p-3 rounded-lg border',
+                  insight.type === 'positive'
+                    ? 'bg-primary/5 border-primary/20'
+                    : insight.type === 'negative'
+                      ? 'bg-destructive/5 border-destructive/20'
+                      : 'bg-muted/20 border-border/30'
+                )}
               >
-                <div className={cn(
-                  'w-2 h-2 rounded-full mt-1.5 shrink-0',
-                  phase.type === 'positive' ? 'bg-primary' :
-                  phase.type === 'negative' ? 'bg-destructive' : 'bg-muted-foreground'
-                )} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold">{phase.phase}</span>
-                    <span className="text-[10px] text-muted-foreground">{phase.time}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{phase.description}</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">{insight.icon}</span>
+                  <span className={cn(
+                    'text-xs font-semibold',
+                    insight.type === 'positive' ? 'text-primary' :
+                    insight.type === 'negative' ? 'text-destructive' : 'text-foreground'
+                  )}>
+                    {insight.title}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {insight.value}
+                  </span>
                 </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {insight.detail}
+                </p>
               </motion.div>
             ))}
           </div>
+
+          {/* Recommendations */}
+          {coachAnalysis.recommendations.length > 0 && (
+            <div className="pt-2 border-t border-border/30">
+              <p className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                Focus Areas
+              </p>
+              <div className="space-y-1">
+                {coachAnalysis.recommendations.map((rec, idx) => (
+                  <p key={idx} className="text-xs text-muted-foreground flex items-start gap-2">
+                    <span className="text-primary">•</span>
+                    {rec}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </div>
