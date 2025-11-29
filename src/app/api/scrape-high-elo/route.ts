@@ -141,6 +141,9 @@ export async function POST(request: NextRequest) {
             getSummonerByPuuid(player.puuid, region),
           ]);
 
+          // Use summoner.id, player.summonerId, or puuid as fallback
+          const finalSummonerId = summoner.id || player.summonerId || player.puuid;
+
           await db
             .insert(summoners)
             .values({
@@ -148,7 +151,7 @@ export async function POST(request: NextRequest) {
               gameName: account.gameName,
               tagLine: account.tagLine,
               region: region,
-              summonerId: summoner.id || player.summonerId,
+              summonerId: finalSummonerId,
               profileIconId: summoner.profileIconId,
               summonerLevel: summoner.summonerLevel,
               updatedAt: new Date(),
@@ -159,7 +162,7 @@ export async function POST(request: NextRequest) {
                 gameName: account.gameName,
                 tagLine: account.tagLine,
                 region: region,
-                summonerId: summoner.id || player.summonerId,
+                summonerId: finalSummonerId,
                 profileIconId: summoner.profileIconId,
                 summonerLevel: summoner.summonerLevel,
                 updatedAt: new Date(),
