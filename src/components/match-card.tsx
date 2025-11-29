@@ -1436,10 +1436,10 @@ function GameAnalysisTab({
 
         {/* Score Bars - Compact */}
         <div className="col-span-4 rounded-xl border border-border/40 bg-card/50 p-3 space-y-2">
-          <CompactScoreBar label="Combat" value={gameScore.combat} color="primary" />
-          <CompactScoreBar label="Farm" value={gameScore.farming} color="amber" />
-          <CompactScoreBar label="Vision" value={gameScore.vision} color="cyan" />
-          <CompactScoreBar label="Obj" value={gameScore.objectives} color="violet" />
+          <CompactScoreBar label="Combat" value={gameScore.combat} />
+          <CompactScoreBar label="Farm" value={gameScore.farming} />
+          <CompactScoreBar label="Vision" value={gameScore.vision} />
+          <CompactScoreBar label="Obj" value={gameScore.objectives} />
         </div>
       </div>
 
@@ -1584,13 +1584,7 @@ function GameAnalysisTab({
 }
 
 // Compact score bar for the analysis tab
-function CompactScoreBar({ label, value, color }: { label: string; value: number; color: 'primary' | 'amber' | 'cyan' | 'violet' }) {
-  const colorClasses = {
-    primary: 'bg-primary',
-    amber: 'bg-amber-500',
-    cyan: 'bg-cyan-500',
-    violet: 'bg-violet-500'
-  };
+function CompactScoreBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-[10px] text-muted-foreground w-10 shrink-0">{label}</span>
@@ -1599,7 +1593,7 @@ function CompactScoreBar({ label, value, color }: { label: string; value: number
           initial={{ width: 0 }}
           animate={{ width: `${value}%` }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
-          className={cn('h-full rounded-full', colorClasses[color])}
+          className="h-full rounded-full bg-primary"
         />
       </div>
       <span className="text-[10px] font-medium tabular-nums w-6 text-right">{Math.round(value)}</span>
