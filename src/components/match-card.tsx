@@ -2252,10 +2252,7 @@ function GoldGraphTab({
           transition={{ delay: 0.2 }}
           className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-4"
         >
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" />
-            <h4 className="font-semibold text-sm">Game Story</h4>
-          </div>
+          <h4 className="font-semibold text-sm">Game Story</h4>
 
           {/* Verdict */}
           <div className={cn(
