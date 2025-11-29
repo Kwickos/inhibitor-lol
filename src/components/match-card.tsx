@@ -1320,179 +1320,349 @@ function GameAnalysisTab({
 }) {
   const minutes = gameDuration / 60;
   const teammates = allParticipants.filter(p => p.teamId === participant.teamId);
+  const enemies = allParticipants.filter(p => p.teamId !== participant.teamId);
+  const position = participant.teamPosition || participant.individualPosition || '';
+  const isSupport = position === 'UTILITY';
+  const isJungler = position === 'JUNGLE';
 
-  // Calculate stats
+  // Find lane opponent
+  const opponent = enemies.find(e =>
+    (e.teamPosition || e.individualPosition) === position
+  );
+
+  // Calculate all stats
   const cs = participant.totalMinionsKilled + participant.neutralMinionsKilled;
   const csPerMin = cs / minutes;
   const goldPerMin = participant.goldEarned / minutes;
-  const visionPerMin = participant.visionScore / minutes;
   const damagePerMin = participant.totalDamageDealtToChampions / minutes;
 
   const teamKills = teammates.reduce((sum, p) => sum + p.kills, 0);
-  const killParticipation = teamKills > 0
-    ? ((participant.kills + participant.assists) / teamKills) * 100
-    : 0;
+  const teamDamage = teammates.reduce((sum, p) => sum + p.totalDamageDealtToChampions, 0);
+  const killParticipation = teamKills > 0 ? ((participant.kills + participant.assists) / teamKills) * 100 : 0;
+  const damageShare = teamDamage > 0 ? (participant.totalDamageDealtToChampions / teamDamage) * 100 : 0;
 
   const kda = participant.deaths === 0
     ? (participant.kills + participant.assists)
     : ((participant.kills + participant.assists) / participant.deaths);
 
+  // Opponent stats
+  const oppCs = opponent ? opponent.totalMinionsKilled + opponent.neutralMinionsKilled : 0;
+  const oppCsPerMin = opponent ? oppCs / minutes : 0;
+  const csDiff = cs - oppCs;
+  const goldDiff = opponent ? participant.goldEarned - opponent.goldEarned : 0;
+  const damageDiff = opponent ? participant.totalDamageDealtToChampions - opponent.totalDamageDealtToChampions : 0;
+  const visionDiff = opponent ? participant.visionScore - opponent.visionScore : 0;
+
+  // Challenges data
+  const challenges = participant.challenges || {};
+  const soloKills = challenges.soloKills || 0;
+  const turretPlates = challenges.turretPlatesTaken || 0;
+  const maxCsAdvantage = challenges.maxCsAdvantageOnLaneOpponent || 0;
+
   if (!gameScore) return null;
 
+  // Grade colors with glow
+  const gradeConfig = {
+    'S+': { bg: 'from-amber-500 to-orange-600', glow: 'shadow-amber-500/50', text: 'text-amber-400' },
+    'S': { bg: 'from-amber-400 to-amber-600', glow: 'shadow-amber-400/40', text: 'text-amber-400' },
+    'A': { bg: 'from-indigo-500 to-violet-600', glow: 'shadow-indigo-500/40', text: 'text-indigo-400' },
+    'B': { bg: 'from-cyan-500 to-teal-600', glow: 'shadow-cyan-500/30', text: 'text-cyan-400' },
+    'C': { bg: 'from-zinc-500 to-zinc-600', glow: 'shadow-zinc-500/20', text: 'text-zinc-400' },
+    'D': { bg: 'from-red-500 to-red-700', glow: 'shadow-red-500/30', text: 'text-red-400' },
+  };
+  const grade = gradeConfig[gameScore.grade] || gradeConfig['C'];
+
   return (
-    <div className="space-y-4">
-      {/* Performance Overview - Similar to Analysis Panel */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Left: Grade + Stat Rings */}
-        <div className="relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-4">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
-          <div className="relative flex items-center gap-4 mb-4">
-            <div className={cn(
-              'text-2xl font-bold w-14 h-14 rounded-xl flex items-center justify-center shadow-lg',
-              gameScore.grade === 'S+' && 'bg-gradient-to-br from-amber-400 to-orange-500 text-white',
-              gameScore.grade === 'S' && 'bg-gradient-to-br from-amber-300 to-amber-500 text-white',
-              gameScore.grade === 'A' && 'bg-gradient-to-br from-indigo-400 to-primary text-white',
-              gameScore.grade === 'B' && 'bg-gradient-to-br from-cyan-400 to-teal-500 text-white',
-              gameScore.grade === 'C' && 'bg-gradient-to-br from-zinc-400 to-zinc-600 text-white',
-              gameScore.grade === 'D' && 'bg-gradient-to-br from-red-400 to-red-600 text-white',
-            )}>
-              {gameScore.grade}
-            </div>
-            <div>
-              <div className="text-xl font-bold">{gameScore.overall}<span className="text-sm font-normal text-muted-foreground">/100</span></div>
-              <div className="text-xs text-muted-foreground">Performance Score</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            <GameStatRing
-              label="KDA"
-              value={kda}
-              max={5}
-              isGood={kda >= 2}
-            />
-            <GameStatRing
-              label="Kill Part."
-              value={killParticipation}
-              max={100}
-              suffix="%"
-              isGood={killParticipation >= 50}
-            />
-            <GameStatRing
-              label="CS/min"
-              value={csPerMin}
-              max={10}
-              isGood={csPerMin >= 6}
-            />
-          </div>
-        </div>
-
-        {/* Right: Score Breakdown */}
-        <div className="relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/5 p-4">
-          <div className="absolute bottom-0 left-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
-
-          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-            <Crosshair className="h-4 w-4 text-primary" />
-            Score Breakdown
-          </h4>
-
-          <div className="space-y-3 relative">
-            <ScoreBar label="Combat" value={gameScore.combat} icon={<Crosshair className="w-3.5 h-3.5" />} />
-            <ScoreBar label="Farming" value={gameScore.farming} icon={<Coins className="w-3.5 h-3.5" />} />
-            <ScoreBar label="Vision" value={gameScore.vision} icon={<Eye className="w-3.5 h-3.5" />} />
-            <ScoreBar label="Objectives" value={gameScore.objectives} icon={<Target className="w-3.5 h-3.5" />} />
-          </div>
-        </div>
-      </div>
-
-      {/* Detailed Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MiniStatCard label="Damage" value={`${(participant.totalDamageDealtToChampions / 1000).toFixed(1)}k`} icon={<Sword className="h-3.5 w-3.5" />} />
-        <MiniStatCard label="Gold" value={`${(participant.goldEarned / 1000).toFixed(1)}k`} icon={<Coins className="h-3.5 w-3.5" />} />
-        <MiniStatCard label="Vision" value={participant.visionScore.toString()} icon={<Eye className="h-3.5 w-3.5" />} />
-        <MiniStatCard label="Turret DMG" value={`${((participant.damageDealtToTurrets || 0) / 1000).toFixed(1)}k`} icon={<TowerIcon className="h-3.5 w-3.5" />} />
-      </div>
-
-      {/* Insights & Improvements Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Key Insights */}
-        {gameScore.insights.length > 0 && (
-          <div className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-card p-4">
-            <div className="absolute top-0 left-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 -translate-x-1/2" />
-
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 relative">
-              <Zap className="h-4 w-4 text-primary" />
-              Strengths
-            </h4>
-
-            <div className="space-y-2 relative">
-              {gameScore.insights.map((insight, idx) => (
+    <div className="space-y-3">
+      {/* Top Row: Grade + Core Stats */}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Grade Card - Prominent */}
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="col-span-3 relative"
+        >
+          <div className={cn(
+            'h-full rounded-xl bg-gradient-to-br p-[1px]',
+            grade.bg
+          )}>
+            <div className="h-full rounded-[11px] bg-card/95 backdrop-blur p-3 flex flex-col items-center justify-center">
+              <div className={cn(
+                'text-4xl font-black tracking-tighter',
+                grade.text
+              )}>
+                {gameScore.grade}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-1 uppercase tracking-widest">Grade</div>
+              <div className="mt-2 text-lg font-bold">{gameScore.overall}</div>
+              <div className="w-full bg-muted/30 rounded-full h-1 mt-1">
                 <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-background/50 border border-border/30"
-                >
-                  <div className="p-1 rounded-md bg-primary/20">
-                    <TrendingUp className="w-3 h-3 text-primary" />
-                  </div>
-                  <span className="text-xs">{insight}</span>
-                </motion.div>
-              ))}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${gameScore.overall}%` }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                  className={cn('h-full rounded-full bg-gradient-to-r', grade.bg)}
+                />
+              </div>
             </div>
           </div>
-        )}
+        </motion.div>
+
+        {/* KDA Display */}
+        <div className="col-span-5 rounded-xl border border-border/40 bg-card/50 p-3">
+          <div className="flex items-baseline gap-1 mb-2">
+            <span className="text-2xl font-bold tabular-nums">{participant.kills}</span>
+            <span className="text-muted-foreground">/</span>
+            <span className="text-2xl font-bold tabular-nums text-destructive">{participant.deaths}</span>
+            <span className="text-muted-foreground">/</span>
+            <span className="text-2xl font-bold tabular-nums">{participant.assists}</span>
+            <span className={cn(
+              'ml-2 text-sm font-semibold',
+              kda >= 4 ? 'text-amber-400' : kda >= 2.5 ? 'text-primary' : kda >= 1.5 ? 'text-foreground' : 'text-destructive'
+            )}>
+              {kda.toFixed(2)} KDA
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Kill Part.</span>
+              <span className={cn('font-medium', killParticipation >= 60 ? 'text-primary' : '')}>{killParticipation.toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">DMG Share</span>
+              <span className={cn('font-medium', damageShare >= 25 ? 'text-primary' : '')}>{damageShare.toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Score Bars - Compact */}
+        <div className="col-span-4 rounded-xl border border-border/40 bg-card/50 p-3 space-y-2">
+          <CompactScoreBar label="Combat" value={gameScore.combat} color="primary" />
+          <CompactScoreBar label="Farm" value={gameScore.farming} color="amber" />
+          <CompactScoreBar label="Vision" value={gameScore.vision} color="cyan" />
+          <CompactScoreBar label="Obj" value={gameScore.objectives} color="violet" />
+        </div>
+      </div>
+
+      {/* Middle Row: VS Opponent */}
+      {opponent && (
+        <motion.div
+          initial={{ y: 10, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.1 }}
+          className="rounded-xl border border-border/40 bg-card/50 overflow-hidden"
+        >
+          <div className="px-3 py-2 border-b border-border/30 bg-muted/20">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VS Lane Opponent</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{opponent.championName}</span>
+                <div className="w-5 h-5 rounded-full overflow-hidden border border-border/50">
+                  <Image
+                    src={getChampionIconUrl(opponent.championName)}
+                    alt={opponent.championName}
+                    width={20}
+                    height={20}
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-3 grid grid-cols-4 gap-3">
+            <VsStatBar
+              label="Gold"
+              you={participant.goldEarned}
+              them={opponent.goldEarned}
+              format="k"
+            />
+            <VsStatBar
+              label="CS"
+              you={cs}
+              them={oppCs}
+            />
+            <VsStatBar
+              label="Damage"
+              you={participant.totalDamageDealtToChampions}
+              them={opponent.totalDamageDealtToChampions}
+              format="k"
+            />
+            <VsStatBar
+              label="Vision"
+              you={participant.visionScore}
+              them={opponent.visionScore}
+            />
+          </div>
+        </motion.div>
+      )}
+
+      {/* Bottom Row: Insights */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Strengths */}
+        <motion.div
+          initial={{ x: -10, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-transparent p-3"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-primary">Strengths</span>
+          </div>
+          <div className="space-y-1.5">
+            {gameScore.insights.length > 0 ? (
+              gameScore.insights.slice(0, 4).map((insight, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs">
+                  <TrendingUp className="w-3 h-3 text-primary shrink-0 mt-0.5" />
+                  <span className="text-muted-foreground">{insight}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">No notable strengths</div>
+            )}
+          </div>
+        </motion.div>
 
         {/* To Improve */}
-        {gameScore.improvements.length > 0 ? (
-          <div className="relative overflow-hidden rounded-xl border border-destructive/30 bg-gradient-to-br from-destructive/5 via-card to-card p-4">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-destructive/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 relative">
-              <Target className="h-4 w-4 text-destructive" />
-              To Improve
-            </h4>
-
-            <div className="space-y-2 relative">
-              {gameScore.improvements.map((improvement, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-background/50 border border-border/30"
-                >
-                  <div className="p-1 rounded-md bg-destructive/20">
-                    <TrendingDown className="w-3 h-3 text-destructive" />
-                  </div>
-                  <span className="text-xs">{improvement}</span>
-                </motion.div>
-              ))}
-            </div>
+        <motion.div
+          initial={{ x: 10, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className={cn(
+            'rounded-xl border p-3',
+            gameScore.improvements.length > 0
+              ? 'border-destructive/30 bg-gradient-to-br from-destructive/5 to-transparent'
+              : 'border-primary/30 bg-gradient-to-br from-primary/10 to-transparent'
+          )}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              gameScore.improvements.length > 0 ? 'bg-destructive' : 'bg-primary animate-pulse'
+            )} />
+            <span className={cn(
+              'text-xs font-semibold uppercase tracking-wider',
+              gameScore.improvements.length > 0 ? 'text-destructive' : 'text-primary'
+            )}>
+              {gameScore.improvements.length > 0 ? 'To Improve' : 'Perfect'}
+            </span>
           </div>
-        ) : (
-          <div className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 relative">
-              <Award className="h-4 w-4 text-primary" />
-              Perfect Game
-            </h4>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center py-3 text-center relative"
-            >
-              <span className="text-2xl mb-2">🏆</span>
-              <span className="text-sm font-medium text-primary">Nothing to improve!</span>
-              <span className="text-xs text-muted-foreground mt-1">You crushed it this game</span>
-            </motion.div>
+          <div className="space-y-1.5">
+            {gameScore.improvements.length > 0 ? (
+              gameScore.improvements.slice(0, 4).map((improvement, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs">
+                  <TrendingDown className="w-3 h-3 text-destructive shrink-0 mt-0.5" />
+                  <span className="text-muted-foreground">{improvement}</span>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center py-2">
+                <span className="text-lg">🏆</span>
+                <span className="text-xs text-primary font-medium">Flawless performance</span>
+              </div>
+            )}
           </div>
-        )}
+        </motion.div>
       </div>
+
+      {/* Extra Stats Row */}
+      <motion.div
+        initial={{ y: 10, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        className="grid grid-cols-6 gap-2"
+      >
+        <MicroStat label="CS/min" value={csPerMin.toFixed(1)} good={csPerMin >= 7} />
+        <MicroStat label="Gold/min" value={goldPerMin.toFixed(0)} good={goldPerMin >= 400} />
+        <MicroStat label="DMG/min" value={(damagePerMin / 1000).toFixed(1) + 'k'} good={damagePerMin >= 800} />
+        <MicroStat label="Vision" value={participant.visionScore.toString()} good={participant.visionScore >= minutes * 0.8} />
+        <MicroStat label="Solo Kills" value={soloKills.toString()} good={soloKills >= 2} />
+        <MicroStat label="Plates" value={turretPlates.toString()} good={turretPlates >= 2} />
+      </motion.div>
+    </div>
+  );
+}
+
+// Compact score bar for the analysis tab
+function CompactScoreBar({ label, value, color }: { label: string; value: number; color: 'primary' | 'amber' | 'cyan' | 'violet' }) {
+  const colorClasses = {
+    primary: 'bg-primary',
+    amber: 'bg-amber-500',
+    cyan: 'bg-cyan-500',
+    violet: 'bg-violet-500'
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-muted-foreground w-10 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${value}%` }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className={cn('h-full rounded-full', colorClasses[color])}
+        />
+      </div>
+      <span className="text-[10px] font-medium tabular-nums w-6 text-right">{Math.round(value)}</span>
+    </div>
+  );
+}
+
+// VS opponent stat comparison bar
+function VsStatBar({ label, you, them, format }: { label: string; you: number; them: number; format?: 'k' }) {
+  const total = you + them;
+  const youPercent = total > 0 ? (you / total) * 100 : 50;
+  const diff = you - them;
+  const diffStr = format === 'k'
+    ? (diff >= 0 ? '+' : '') + (diff / 1000).toFixed(1) + 'k'
+    : (diff >= 0 ? '+' : '') + diff;
+  const youStr = format === 'k' ? (you / 1000).toFixed(1) + 'k' : you.toString();
+  const themStr = format === 'k' ? (them / 1000).toFixed(1) + 'k' : them.toString();
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[10px]">
+        <span className="text-muted-foreground">{label}</span>
+        <span className={cn(
+          'font-medium',
+          diff > 0 ? 'text-primary' : diff < 0 ? 'text-destructive' : 'text-muted-foreground'
+        )}>
+          {diffStr}
+        </span>
+      </div>
+      <div className="h-2 bg-muted/20 rounded-full overflow-hidden flex">
+        <motion.div
+          initial={{ width: '50%' }}
+          animate={{ width: `${youPercent}%` }}
+          transition={{ duration: 0.5 }}
+          className={cn(
+            'h-full rounded-l-full',
+            youPercent > 50 ? 'bg-primary' : youPercent < 50 ? 'bg-muted-foreground' : 'bg-muted-foreground'
+          )}
+        />
+        <motion.div
+          initial={{ width: '50%' }}
+          animate={{ width: `${100 - youPercent}%` }}
+          transition={{ duration: 0.5 }}
+          className="h-full rounded-r-full bg-destructive/60"
+        />
+      </div>
+      <div className="flex justify-between text-[10px] tabular-nums">
+        <span className="text-foreground font-medium">{youStr}</span>
+        <span className="text-muted-foreground">{themStr}</span>
+      </div>
+    </div>
+  );
+}
+
+// Micro stat pill
+function MicroStat({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div className={cn(
+      'rounded-lg border px-2 py-1.5 text-center',
+      good ? 'border-primary/30 bg-primary/5' : 'border-border/40 bg-card/50'
+    )}>
+      <div className={cn('text-sm font-bold tabular-nums', good ? 'text-primary' : 'text-foreground')}>{value}</div>
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</div>
     </div>
   );
 }
