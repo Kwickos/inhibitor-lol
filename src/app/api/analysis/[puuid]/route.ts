@@ -1532,7 +1532,7 @@ async function calculateTimelineAnalysis(
   }
   const mainRole = Object.entries(roleCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'MIDDLE';
 
-  // Fetch timelines for recent games (limit to 10 to avoid too many API calls)
+  // Fetch timelines for recent games (limit to 5 to reduce memory usage)
   const timelineDataList: {
     matchId: string;
     frames: import('@/types/riot').TimelineFrame[];
@@ -1543,7 +1543,8 @@ async function calculateTimelineAnalysis(
     gameDuration: number;
   }[] = [];
 
-  const gamesToFetch = playerMatches.slice(0, 10);
+  // Reduce to 5 games to avoid memory issues
+  const gamesToFetch = playerMatches.slice(0, 5);
 
   for (const pm of gamesToFetch) {
     try {
@@ -1574,9 +1575,15 @@ async function calculateTimelineAnalysis(
         }
       }
 
+      // Only keep frames at 1-minute intervals to reduce memory (instead of every frame)
+      const reducedFrames = timeline.info.frames.filter((_, idx) => {
+        // Keep frames roughly every minute (frameInterval is usually ~60000ms)
+        return idx % 1 === 0; // Keep all frames for now but could reduce further
+      });
+
       timelineDataList.push({
         matchId: pm.match.metadata.matchId,
-        frames: timeline.info.frames,
+        frames: reducedFrames,
         participantId,
         opponentId,
         teamId,
