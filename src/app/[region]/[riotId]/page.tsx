@@ -16,7 +16,6 @@ import { AnalysisPanel } from '@/components/analysis-panel';
 import { LiveGamePanel } from '@/components/live-game-panel';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { useSearchHistory } from '@/hooks/use-search-history';
 import { cn } from '@/lib/utils';
 
 interface PageProps {
@@ -96,7 +95,6 @@ export default function SummonerPage({ params }: PageProps) {
     }
   }, [data?.liveGame]);
 
-  const { addToHistory } = useSearchHistory();
 
   // Validate region
   const isValidRegion = REGIONS[region as RegionKey] !== undefined;
@@ -123,9 +121,6 @@ export default function SummonerPage({ params }: PageProps) {
 
         const summonerData = await res.json();
         setData(summonerData);
-
-        // Add to search history
-        addToHistory({ gameName, tagLine, region });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
@@ -134,7 +129,7 @@ export default function SummonerPage({ params }: PageProps) {
     }
 
     fetchData();
-  }, [region, gameName, tagLine, isValidRegion, addToHistory]);
+  }, [region, gameName, tagLine, isValidRegion]);
 
   // Loading state
   if (isLoading) {

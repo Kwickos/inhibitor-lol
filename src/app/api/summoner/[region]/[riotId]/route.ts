@@ -4,6 +4,8 @@ import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getLeagueEntriesByPuuid } from '@/lib/riot-api';
 import { getChampionNameById } from '@/lib/champions';
 import { assignTeamRoles, ROLE_ORDER } from '@/lib/constants/champion-roles';
+import { db } from '@/lib/db';
+import { summoners } from '@/db/schema';
 import type { CurrentGameInfo } from '@/types/riot';
 
 interface Params {
@@ -62,6 +64,33 @@ export async function GET(request: NextRequest, { params }: Params) {
       getMasteries(account.puuid, regionKey, 5).catch(() => []),
       getLiveGame(account.puuid, regionKey).catch(() => null),
     ]);
+
+    // Store summoner in database for search suggestions (non-blocking)
+    const summonerId = summoner.id || account.puuid; // Fallback to puuid if id is missing
+    db.insert(summoners)
+      .values({
+        puuid: account.puuid,
+        gameName: account.gameName,
+        tagLine: account.tagLine,
+        region: regionKey,
+        summonerId,
+        profileIconId: summoner.profileIconId,
+        summonerLevel: summoner.summonerLevel,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: summoners.puuid,
+        set: {
+          gameName: account.gameName,
+          tagLine: account.tagLine,
+          region: regionKey,
+          summonerId,
+          profileIconId: summoner.profileIconId,
+          summonerLevel: summoner.summonerLevel,
+          updatedAt: new Date(),
+        },
+      })
+      .catch((e) => console.warn('Failed to store summoner:', e));
 
     // Transform live game data if present
     let liveGame = null;

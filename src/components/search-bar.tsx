@@ -1,21 +1,33 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Star, Clock, ChevronDown, X, Loader2 } from 'lucide-react';
+import { Search, Star, ChevronDown, X, Loader2, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { REGION_LIST, REGION_GROUPS, type RegionKey } from '@/lib/constants/regions';
 import { useFavorites, type Favorite } from '@/hooks/use-favorites';
-import { useSearchHistory, type SearchHistoryItem } from '@/hooks/use-search-history';
+import { useSearchHistory } from '@/hooks/use-search-history';
 import { cn } from '@/lib/utils';
+
+interface PlayerSuggestion {
+  puuid: string;
+  gameName: string;
+  tagLine: string;
+  region: string;
+  profileIconId: number;
+  profileIconUrl: string;
+  summonerLevel: number;
+}
 
 interface SearchBarProps {
   className?: string;
   autoFocus?: boolean;
   size?: 'default' | 'large';
 }
+
+type SelectableItem = (PlayerSuggestion | Favorite) & { type: 'player' | 'favorite' };
 
 export function SearchBar({ className, autoFocus = false, size = 'default' }: SearchBarProps) {
   const router = useRouter();
@@ -24,11 +36,77 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
   const [isRegionOpen, setIsRegionOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<PlayerSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const { favorites, isLoaded: favoritesLoaded } = useFavorites();
-  const { history, addToHistory, isLoaded: historyLoaded } = useSearchHistory();
+  const { addToHistory } = useSearchHistory();
+
+  // Combined list of selectable items
+  const selectableItems = useMemo<SelectableItem[]>(() => {
+    const items: SelectableItem[] = [];
+
+    // Add suggestions first if searching
+    if (query.trim().length >= 2) {
+      suggestions.forEach((s) => items.push({ ...s, type: 'player' }));
+    }
+
+    // Add favorites
+    favorites.forEach((f) => items.push({ ...f, type: 'favorite' } as SelectableItem));
+
+    return items;
+  }, [suggestions, favorites, query]);
+
+  // Reset selection when items change
+  useEffect(() => {
+    setSelectedIndex(-1);
+  }, [selectableItems.length]);
+
+  // Fetch player suggestions from database
+  const fetchSuggestions = useCallback(async (searchQuery: string) => {
+    if (searchQuery.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    setIsLoadingSuggestions(true);
+    try {
+      const res = await fetch(`/api/players/search?q=${encodeURIComponent(searchQuery)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.players || []);
+      }
+    } catch (error) {
+      console.error('Error fetching suggestions:', error);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  }, []);
+
+  // Debounced search for suggestions
+  useEffect(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (query.trim().length >= 2) {
+      debounceRef.current = setTimeout(() => {
+        fetchSuggestions(query.trim());
+      }, 300);
+    } else {
+      setSuggestions([]);
+    }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [query, fetchSuggestions]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -42,6 +120,42 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!isDropdownOpen || selectableItems.length === 0) {
+      if (e.key === 'ArrowDown' && !isDropdownOpen) {
+        setIsDropdownOpen(true);
+        return;
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev < selectableItems.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : selectableItems.length - 1
+        );
+        break;
+      case 'Enter':
+        if (selectedIndex >= 0 && selectedIndex < selectableItems.length) {
+          e.preventDefault();
+          handleQuickSearch(selectableItems[selectedIndex]);
+        }
+        break;
+      case 'Escape':
+        setIsDropdownOpen(false);
+        setSelectedIndex(-1);
+        break;
+    }
+  }, [isDropdownOpen, selectableItems, selectedIndex]);
 
   const handleSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -60,6 +174,7 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
     }
 
     setIsSearching(true);
+    setIsDropdownOpen(false);
 
     // Add to search history
     addToHistory({ gameName, tagLine, region: selectedRegion });
@@ -68,11 +183,13 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
     router.push(`/${selectedRegion}/${encodeURIComponent(`${gameName}-${tagLine}`)}`);
   };
 
-  const handleQuickSearch = (item: Favorite | SearchHistoryItem) => {
+  const handleQuickSearch = (item: SelectableItem) => {
     const region = item.region as RegionKey;
     setSelectedRegion(region);
     setQuery(`${item.gameName}#${item.tagLine}`);
     setIsDropdownOpen(false);
+    setSuggestions([]);
+    setSelectedIndex(-1);
 
     // Navigate directly (format: /region/gameName-tagLine)
     addToHistory({ gameName: item.gameName, tagLine: item.tagLine, region });
@@ -82,6 +199,9 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
   const selectedRegionData = REGION_LIST.find(r => r.key === selectedRegion);
 
   const isLarge = size === 'large';
+
+  // Calculate index ranges for different sections
+  const playerEndIndex = query.trim().length >= 2 ? suggestions.length : 0;
 
   return (
     <div ref={containerRef} className={cn('relative w-full max-w-2xl', className)}>
@@ -125,6 +245,7 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
                 setIsDropdownOpen(true);
                 setIsRegionOpen(false);
               }}
+              onKeyDown={handleKeyDown}
               placeholder={isLarge ? "Search summoner... (Name#TAG)" : "Name#TAG"}
               autoFocus={autoFocus}
               className={cn(
@@ -137,7 +258,11 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
             {query && (
               <button
                 type="button"
-                onClick={() => setQuery('')}
+                onClick={() => {
+                  setQuery('');
+                  setSuggestions([]);
+                  setSelectedIndex(-1);
+                }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="h-4 w-4" />
@@ -211,9 +336,9 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
         )}
       </AnimatePresence>
 
-      {/* Favorites & History Dropdown */}
+      {/* Suggestions & Favorites Dropdown */}
       <AnimatePresence>
-        {isDropdownOpen && favoritesLoaded && historyLoaded && (favorites.length > 0 || history.length > 0) && (
+        {isDropdownOpen && favoritesLoaded && (favorites.length > 0 || query.trim().length >= 2) && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -222,53 +347,76 @@ export function SearchBar({ className, autoFocus = false, size = 'default' }: Se
             className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border/50 bg-card/95 backdrop-blur-md shadow-xl z-50 overflow-hidden"
           >
             <div className="max-h-80 overflow-y-auto">
+              {/* Player Suggestions */}
+              {query.trim().length >= 2 && (
+                <div className={cn("p-2", favorites.length > 0 && "border-b border-border/50")}>
+                  <div className="px-2 py-1 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <Users className="h-3 w-3" />
+                    Players
+                    {isLoadingSuggestions && <Loader2 className="h-3 w-3 animate-spin ml-auto" />}
+                  </div>
+                  {suggestions.map((player, idx) => (
+                    <button
+                      key={player.puuid}
+                      onClick={() => handleQuickSearch({ ...player, type: 'player' })}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left",
+                        selectedIndex === idx
+                          ? "bg-secondary"
+                          : "hover:bg-secondary/50"
+                      )}
+                    >
+                      <img
+                        src={player.profileIconUrl}
+                        alt=""
+                        className="h-8 w-8 rounded-full bg-muted"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">
+                          {player.gameName}
+                          <span className="text-muted-foreground">#{player.tagLine}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Level {player.summonerLevel}</div>
+                      </div>
+                      <span className="text-xs text-muted-foreground uppercase">{player.region}</span>
+                    </button>
+                  ))}
+                  {!isLoadingSuggestions && suggestions.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No players found</div>
+                  )}
+                </div>
+              )}
+
               {/* Favorites */}
               {favorites.length > 0 && (
-                <div className="p-2 border-b border-border/50">
+                <div className="p-2">
                   <div className="px-2 py-1 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     <Star className="h-3 w-3 fill-current" />
                     Favorites
                   </div>
-                  {favorites.map((fav) => (
-                    <button
-                      key={fav.puuid}
-                      onClick={() => handleQuickSearch(fav)}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-secondary transition-colors text-left"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
-                          {fav.gameName}
-                          <span className="text-muted-foreground">#{fav.tagLine}</span>
+                  {favorites.map((fav, idx) => {
+                    const itemIndex = playerEndIndex + idx;
+                    return (
+                      <button
+                        key={fav.puuid}
+                        onClick={() => handleQuickSearch({ ...fav, type: 'favorite' } as SelectableItem)}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left",
+                          selectedIndex === itemIndex
+                            ? "bg-secondary"
+                            : "hover:bg-secondary/50"
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {fav.gameName}
+                            <span className="text-muted-foreground">#{fav.tagLine}</span>
+                          </div>
                         </div>
-                      </div>
-                      <span className="text-xs text-muted-foreground uppercase">{fav.region}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* History */}
-              {history.length > 0 && (
-                <div className="p-2">
-                  <div className="px-2 py-1 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    <Clock className="h-3 w-3" />
-                    Recent
-                  </div>
-                  {history.slice(0, 5).map((item, idx) => (
-                    <button
-                      key={`${item.gameName}-${item.tagLine}-${item.region}-${idx}`}
-                      onClick={() => handleQuickSearch(item)}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-secondary transition-colors text-left"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
-                          {item.gameName}
-                          <span className="text-muted-foreground">#{item.tagLine}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-muted-foreground uppercase">{item.region}</span>
-                    </button>
-                  ))}
+                        <span className="text-xs text-muted-foreground uppercase">{fav.region}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
