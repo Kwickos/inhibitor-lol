@@ -1,73 +1,121 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { playerMatches, matches, championBenchmarks } from '@/db/schema';
-import { eq, sql, and, gte, desc } from 'drizzle-orm';
+import { playerMatches, matches, championBenchmarks, ranks } from '@/db/schema';
+import { eq, sql, and, gte, desc, inArray } from 'drizzle-orm';
+
+// High elo tiers for benchmark comparison
+const HIGH_ELO_TIERS = ['DIAMOND', 'EMERALD', 'MASTER', 'GRANDMASTER', 'CHALLENGER'];
 
 // Aggregate champion benchmarks from our stored match data
-// This creates benchmarks per champion/role based on all available data
+// This creates benchmarks per champion/role/tier based on player ranks
 
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const minGames = parseInt(searchParams.get('minGames') || '10');
+    const minGames = parseInt(searchParams.get('minGames') || '5');
 
-    // Aggregate stats per champion/role from playerMatches
-    // We'll use all our data and mark it as "ALL_RANKS" tier
-    // Later we can filter by rank when we have that data
-    const aggregatedStats = await db
-      .select({
-        championId: playerMatches.championId,
-        championName: playerMatches.championName,
-        teamPosition: playerMatches.teamPosition,
-        gamesCount: sql<number>`count(*)`.as('games_count'),
-        wins: sql<number>`sum(case when ${playerMatches.win} then 1 else 0 end)`.as('wins'),
-        // Core stats
-        totalKills: sql<number>`sum(${playerMatches.kills})`.as('total_kills'),
-        totalDeaths: sql<number>`sum(${playerMatches.deaths})`.as('total_deaths'),
-        totalAssists: sql<number>`sum(${playerMatches.assists})`.as('total_assists'),
-        // CS & Gold
-        totalCs: sql<number>`sum(${playerMatches.cs})`.as('total_cs'),
-        totalGoldEarned: sql<number>`sum(${playerMatches.goldEarned})`.as('total_gold'),
-        totalTimePlayed: sql<number>`sum(${playerMatches.timePlayed})`.as('total_time'),
-        // Damage
-        totalDamage: sql<number>`sum(${playerMatches.totalDamageDealtToChampions})`.as('total_damage'),
-        // Vision
-        totalVisionScore: sql<number>`sum(${playerMatches.visionScore})`.as('total_vision'),
-        totalWardsPlaced: sql<number>`sum(${playerMatches.wardsPlaced})`.as('total_wards'),
-        totalControlWards: sql<number>`sum(${playerMatches.controlWardsPlaced})`.as('total_control_wards'),
-        // Combat (from challenges)
-        totalSoloKills: sql<number>`sum(${playerMatches.soloKills})`.as('total_solo_kills'),
-        totalSkillshotsHit: sql<number>`sum(${playerMatches.skillshotsHit})`.as('total_skillshots_hit'),
-        totalSkillshotsDodged: sql<number>`sum(${playerMatches.skillshotsDodged})`.as('total_skillshots_dodged'),
-        // Kill participation & damage share (stored as percentages)
-        totalKillParticipation: sql<number>`sum(${playerMatches.killParticipation})`.as('total_kp'),
-        totalDamageShare: sql<number>`sum(${playerMatches.teamDamagePercentage})`.as('total_damage_share'),
-        // Count non-null values for proper averaging
-        kpCount: sql<number>`sum(case when ${playerMatches.killParticipation} is not null then 1 else 0 end)`.as('kp_count'),
-        dmgShareCount: sql<number>`sum(case when ${playerMatches.teamDamagePercentage} is not null then 1 else 0 end)`.as('dmg_share_count'),
-        soloKillsCount: sql<number>`sum(case when ${playerMatches.soloKills} is not null then 1 else 0 end)`.as('solo_kills_count'),
-      })
-      .from(playerMatches)
-      .where(
-        and(
-          sql`${playerMatches.teamPosition} IS NOT NULL`,
-          sql`${playerMatches.teamPosition} != ''`,
-          sql`${playerMatches.timePlayed} > 300` // Only games > 5 min
-        )
-      )
-      .groupBy(playerMatches.championId, playerMatches.championName, playerMatches.teamPosition)
-      .having(sql`count(*) >= ${minGames}`);
+    // Helper to run aggregation query with optional tier filter
+    const aggregateStats = async (tierFilter?: string[]) => {
+      // Build the base query with optional join to ranks table
+      const baseQuery = tierFilter
+        ? db
+            .select({
+              championId: playerMatches.championId,
+              championName: playerMatches.championName,
+              teamPosition: playerMatches.teamPosition,
+              gamesCount: sql<number>`count(*)`.as('games_count'),
+              wins: sql<number>`sum(case when ${playerMatches.win} then 1 else 0 end)`.as('wins'),
+              totalKills: sql<number>`sum(${playerMatches.kills})`.as('total_kills'),
+              totalDeaths: sql<number>`sum(${playerMatches.deaths})`.as('total_deaths'),
+              totalAssists: sql<number>`sum(${playerMatches.assists})`.as('total_assists'),
+              totalCs: sql<number>`sum(${playerMatches.cs})`.as('total_cs'),
+              totalGoldEarned: sql<number>`sum(${playerMatches.goldEarned})`.as('total_gold'),
+              totalTimePlayed: sql<number>`sum(${playerMatches.timePlayed})`.as('total_time'),
+              totalDamage: sql<number>`sum(${playerMatches.totalDamageDealtToChampions})`.as('total_damage'),
+              totalVisionScore: sql<number>`sum(${playerMatches.visionScore})`.as('total_vision'),
+              totalWardsPlaced: sql<number>`sum(${playerMatches.wardsPlaced})`.as('total_wards'),
+              totalControlWards: sql<number>`sum(${playerMatches.controlWardsPlaced})`.as('total_control_wards'),
+              totalSoloKills: sql<number>`sum(${playerMatches.soloKills})`.as('total_solo_kills'),
+              totalSkillshotsHit: sql<number>`sum(${playerMatches.skillshotsHit})`.as('total_skillshots_hit'),
+              totalSkillshotsDodged: sql<number>`sum(${playerMatches.skillshotsDodged})`.as('total_skillshots_dodged'),
+              totalKillParticipation: sql<number>`sum(${playerMatches.killParticipation})`.as('total_kp'),
+              totalDamageShare: sql<number>`sum(${playerMatches.teamDamagePercentage})`.as('total_damage_share'),
+              kpCount: sql<number>`sum(case when ${playerMatches.killParticipation} is not null then 1 else 0 end)`.as('kp_count'),
+              dmgShareCount: sql<number>`sum(case when ${playerMatches.teamDamagePercentage} is not null then 1 else 0 end)`.as('dmg_share_count'),
+              soloKillsCount: sql<number>`sum(case when ${playerMatches.soloKills} is not null then 1 else 0 end)`.as('solo_kills_count'),
+            })
+            .from(playerMatches)
+            .innerJoin(ranks, and(
+              eq(playerMatches.puuid, ranks.puuid),
+              eq(ranks.queueType, 'RANKED_SOLO_5x5')
+            ))
+            .where(
+              and(
+                sql`${playerMatches.teamPosition} IS NOT NULL`,
+                sql`${playerMatches.teamPosition} != ''`,
+                sql`${playerMatches.timePlayed} > 300`,
+                sql`${ranks.tier} IN (${sql.join(tierFilter.map(t => sql`${t}`), sql`, `)})`
+              )
+            )
+            .groupBy(playerMatches.championId, playerMatches.championName, playerMatches.teamPosition)
+            .having(sql`count(*) >= ${minGames}`)
+        : db
+            .select({
+              championId: playerMatches.championId,
+              championName: playerMatches.championName,
+              teamPosition: playerMatches.teamPosition,
+              gamesCount: sql<number>`count(*)`.as('games_count'),
+              wins: sql<number>`sum(case when ${playerMatches.win} then 1 else 0 end)`.as('wins'),
+              totalKills: sql<number>`sum(${playerMatches.kills})`.as('total_kills'),
+              totalDeaths: sql<number>`sum(${playerMatches.deaths})`.as('total_deaths'),
+              totalAssists: sql<number>`sum(${playerMatches.assists})`.as('total_assists'),
+              totalCs: sql<number>`sum(${playerMatches.cs})`.as('total_cs'),
+              totalGoldEarned: sql<number>`sum(${playerMatches.goldEarned})`.as('total_gold'),
+              totalTimePlayed: sql<number>`sum(${playerMatches.timePlayed})`.as('total_time'),
+              totalDamage: sql<number>`sum(${playerMatches.totalDamageDealtToChampions})`.as('total_damage'),
+              totalVisionScore: sql<number>`sum(${playerMatches.visionScore})`.as('total_vision'),
+              totalWardsPlaced: sql<number>`sum(${playerMatches.wardsPlaced})`.as('total_wards'),
+              totalControlWards: sql<number>`sum(${playerMatches.controlWardsPlaced})`.as('total_control_wards'),
+              totalSoloKills: sql<number>`sum(${playerMatches.soloKills})`.as('total_solo_kills'),
+              totalSkillshotsHit: sql<number>`sum(${playerMatches.skillshotsHit})`.as('total_skillshots_hit'),
+              totalSkillshotsDodged: sql<number>`sum(${playerMatches.skillshotsDodged})`.as('total_skillshots_dodged'),
+              totalKillParticipation: sql<number>`sum(${playerMatches.killParticipation})`.as('total_kp'),
+              totalDamageShare: sql<number>`sum(${playerMatches.teamDamagePercentage})`.as('total_damage_share'),
+              kpCount: sql<number>`sum(case when ${playerMatches.killParticipation} is not null then 1 else 0 end)`.as('kp_count'),
+              dmgShareCount: sql<number>`sum(case when ${playerMatches.teamDamagePercentage} is not null then 1 else 0 end)`.as('dmg_share_count'),
+              soloKillsCount: sql<number>`sum(case when ${playerMatches.soloKills} is not null then 1 else 0 end)`.as('solo_kills_count'),
+            })
+            .from(playerMatches)
+            .where(
+              and(
+                sql`${playerMatches.teamPosition} IS NOT NULL`,
+                sql`${playerMatches.teamPosition} != ''`,
+                sql`${playerMatches.timePlayed} > 300`
+              )
+            )
+            .groupBy(playerMatches.championId, playerMatches.championName, playerMatches.teamPosition)
+            .having(sql`count(*) >= ${minGames}`);
 
-    console.log(`Found ${aggregatedStats.length} champion/role combinations with >= ${minGames} games`);
+      return baseQuery;
+    };
+
+    // Aggregate for HIGH_ELO (Diamond+)
+    const highEloStats = await aggregateStats(HIGH_ELO_TIERS);
+    console.log(`Found ${highEloStats.length} HIGH_ELO champion/role combinations`);
+
+    // Aggregate for ALL_RANKS (fallback)
+    const allRanksStats = await aggregateStats();
+    console.log(`Found ${allRanksStats.length} ALL_RANKS champion/role combinations`);
 
     let inserted = 0;
     const now = new Date();
 
-    for (const stats of aggregatedStats) {
-      if (!stats.teamPosition) continue;
+    // Helper to insert/update benchmark
+    const insertBenchmark = async (stats: typeof highEloStats[0], tier: string) => {
+      if (!stats.teamPosition) return false;
 
       const role = normalizeRole(stats.teamPosition);
-      if (!role) continue;
+      if (!role) return false;
 
       const avgMinutes = stats.totalTimePlayed ? (stats.totalTimePlayed / stats.gamesCount) / 60 : 25;
 
@@ -96,7 +144,7 @@ export async function POST(request: NextRequest) {
             championId: stats.championId,
             championName: stats.championName,
             role: role,
-            tier: 'ALL_RANKS', // Will add HIGH_ELO tier when we have rank data
+            tier: tier,
             gamesAnalyzed: stats.gamesCount,
             avgKills: Math.round(avgKills * 100),
             avgDeaths: Math.round(avgDeaths * 100),
@@ -140,15 +188,28 @@ export async function POST(request: NextRequest) {
               updatedAt: now,
             },
           });
-        inserted++;
+        return true;
       } catch (e) {
-        console.warn(`Failed to insert benchmark for ${stats.championName} ${role}:`, e);
+        console.warn(`Failed to insert benchmark for ${stats.championName} ${role} (${tier}):`, e);
+        return false;
       }
+    };
+
+    // Insert HIGH_ELO benchmarks (Diamond+)
+    for (const stats of highEloStats) {
+      if (await insertBenchmark(stats, 'HIGH_ELO')) inserted++;
+    }
+
+    // Insert ALL_RANKS benchmarks (fallback)
+    for (const stats of allRanksStats) {
+      if (await insertBenchmark(stats, 'ALL_RANKS')) inserted++;
     }
 
     return NextResponse.json({
-      message: `Aggregated ${inserted} champion benchmarks`,
+      message: `Aggregated ${inserted} champion benchmarks (${highEloStats.length} HIGH_ELO, ${allRanksStats.length} ALL_RANKS)`,
       total: inserted,
+      highElo: highEloStats.length,
+      allRanks: allRanksStats.length,
     });
   } catch (error) {
     console.error('Champion benchmarks API error:', error);
@@ -159,15 +220,40 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to retrieve benchmarks for a specific champion
+// GET endpoint to retrieve benchmarks for a specific champion or batch
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const championId = searchParams.get('championId');
     const championName = searchParams.get('championName');
+    const championIds = searchParams.get('championIds'); // comma-separated list
     const role = searchParams.get('role');
 
-    let query = db.select().from(championBenchmarks);
+    // Batch query for multiple champions (for match cards)
+    if (championIds) {
+      const ids = championIds.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (ids.length === 0) {
+        return NextResponse.json([]);
+      }
+
+      const benchmarks = await db
+        .select()
+        .from(championBenchmarks)
+        .where(sql`${championBenchmarks.championId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+
+      // Return as a map for easy lookup: { "championId-role": benchmark }
+      // Prefer HIGH_ELO over ALL_RANKS for each champion/role
+      const benchmarkMap: Record<string, typeof benchmarks[0]> = {};
+      for (const b of benchmarks) {
+        const key = `${b.championId}-${b.role}`;
+        const existing = benchmarkMap[key];
+        // Prefer HIGH_ELO, otherwise use existing or this one
+        if (!existing || b.tier === 'HIGH_ELO') {
+          benchmarkMap[key] = b;
+        }
+      }
+      return NextResponse.json(benchmarkMap);
+    }
 
     if (championId) {
       const benchmarks = await db

@@ -4,6 +4,7 @@ import type {
   Summoner,
   LeagueEntry,
   Match,
+  MatchTimeline,
   ChampionMastery,
   CurrentGameInfo,
 } from '@/types/riot';
@@ -155,6 +156,44 @@ export async function getLeagueEntriesByPuuid(puuid: string, region: RegionKey):
   return fetchRiotApi<LeagueEntry[]>(url);
 }
 
+// High Elo League endpoints
+interface LeagueList {
+  tier: string;
+  leagueId: string;
+  queue: string;
+  name: string;
+  entries: Array<{
+    summonerId: string;
+    puuid: string;
+    leaguePoints: number;
+    rank: string;
+    wins: number;
+    losses: number;
+    veteran: boolean;
+    inactive: boolean;
+    freshBlood: boolean;
+    hotStreak: boolean;
+  }>;
+}
+
+export async function getChallengerLeague(region: RegionKey, queue: 'RANKED_SOLO_5x5' | 'RANKED_FLEX_SR' = 'RANKED_SOLO_5x5'): Promise<LeagueList> {
+  const host = getPlatformHost(region);
+  const url = `https://${host}/lol/league/v4/challengerleagues/by-queue/${queue}`;
+  return fetchRiotApi<LeagueList>(url);
+}
+
+export async function getGrandmasterLeague(region: RegionKey, queue: 'RANKED_SOLO_5x5' | 'RANKED_FLEX_SR' = 'RANKED_SOLO_5x5'): Promise<LeagueList> {
+  const host = getPlatformHost(region);
+  const url = `https://${host}/lol/league/v4/grandmasterleagues/by-queue/${queue}`;
+  return fetchRiotApi<LeagueList>(url);
+}
+
+export async function getMasterLeague(region: RegionKey, queue: 'RANKED_SOLO_5x5' | 'RANKED_FLEX_SR' = 'RANKED_SOLO_5x5'): Promise<LeagueList> {
+  const host = getPlatformHost(region);
+  const url = `https://${host}/lol/league/v4/masterleagues/by-queue/${queue}`;
+  return fetchRiotApi<LeagueList>(url);
+}
+
 // Match API
 export async function getMatchIds(
   puuid: string,
@@ -181,6 +220,12 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
   const host = getRegionalHost(region);
   const url = `https://${host}/lol/match/v5/matches/${matchId}`;
   return fetchRiotApi<Match>(url);
+}
+
+export async function getMatchTimeline(matchId: string, region: RegionKey): Promise<MatchTimeline> {
+  const host = getRegionalHost(region);
+  const url = `https://${host}/lol/match/v5/matches/${matchId}/timeline`;
+  return fetchRiotApi<MatchTimeline>(url);
 }
 
 // Champion Mastery API

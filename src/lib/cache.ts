@@ -188,6 +188,14 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
     });
 
     if (dbResult) {
+      // Parse JSON strings from DB
+      const participants = typeof dbResult.participants === 'string'
+        ? JSON.parse(dbResult.participants)
+        : dbResult.participants;
+      const teams = typeof dbResult.teams === 'string'
+        ? JSON.parse(dbResult.teams)
+        : dbResult.teams;
+
       // Reconstruct Match from DB with all available metadata
       const match: Match = {
         metadata: {
@@ -206,10 +214,10 @@ export async function getMatch(matchId: string, region: RegionKey): Promise<Matc
           gameType: dbResult.gameType || '',
           gameVersion: dbResult.gameVersion || '',
           mapId: dbResult.mapId || 11,
-          participants: dbResult.participants as Match['info']['participants'],
+          participants: participants as Match['info']['participants'],
           platformId: dbResult.platformId || '',
           queueId: dbResult.queueId,
-          teams: (dbResult.teams as Match['info']['teams']) || [],
+          teams: (teams as Match['info']['teams']) || [],
           tournamentCode: undefined,
           endOfGameResult: dbResult.endOfGameResult || undefined,
         },
@@ -487,11 +495,16 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
       const match = matchMap.get(pm.matchId);
       if (!match) continue;
 
-      const participants = match.participants as Match['info']['participants'];
-      const participant = participants.find(p => p.puuid === puuid);
+      // Parse JSON strings from DB
+      const participants = typeof match.participants === 'string'
+        ? JSON.parse(match.participants)
+        : match.participants;
+      const participant = participants.find((p: { puuid: string }) => p.puuid === puuid);
       if (!participant) continue;
 
-      const teams = (match.teams as Match['info']['teams']) || [];
+      const teams = typeof match.teams === 'string'
+        ? JSON.parse(match.teams)
+        : (match.teams || []);
 
       summaries.push({
         matchId: match.matchId,

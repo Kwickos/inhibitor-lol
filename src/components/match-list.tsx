@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { MatchCard } from '@/components/match-card';
+import { MatchCard, type ChampionBenchmark } from '@/components/match-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QUEUE_FILTERS, type QueueFilterId } from '@/lib/constants/queues';
 import { cn } from '@/lib/utils';
@@ -149,6 +149,7 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
   const [currentPage, setCurrentPage] = useState(1);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const hasFetched = useRef(false);
+  const [benchmarks, setBenchmarks] = useState<Record<string, ChampionBenchmark>>({});
 
   // Build API URL (fetches ALL matches)
   const buildApiUrl = useCallback(() => {
@@ -199,6 +200,30 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
     }
   }, [puuid, buildApiUrl]);
 
+  // Fetch benchmarks for all champions in current matches
+  const fetchBenchmarks = useCallback(async (matches: MatchSummary[]) => {
+    if (matches.length === 0) return;
+
+    // Get unique champion IDs from all matches (player + participants)
+    const championIds = new Set<number>();
+    matches.forEach(match => {
+      championIds.add(match.participant.championId);
+      match.allParticipants?.forEach(p => championIds.add(p.championId));
+    });
+
+    if (championIds.size === 0) return;
+
+    try {
+      const res = await fetch(`/api/champion-benchmarks?championIds=${Array.from(championIds).join(',')}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBenchmarks(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch benchmarks:', err);
+    }
+  }, []);
+
   // Initial fetch - only once
   useEffect(() => {
     if (!hasFetched.current) {
@@ -206,6 +231,13 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       fetchMatches(false);
     }
   }, [fetchMatches]);
+
+  // Fetch benchmarks when matches change
+  useEffect(() => {
+    if (allMatches.length > 0) {
+      fetchBenchmarks(allMatches);
+    }
+  }, [allMatches, fetchBenchmarks]);
 
   // Manual refresh
   const handleRefresh = () => {
@@ -347,6 +379,7 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
                       currentPuuid={puuid}
                       region={region}
                       delay={index * 0.02}
+                      benchmarks={benchmarks}
                     />
                   ))}
                 </div>

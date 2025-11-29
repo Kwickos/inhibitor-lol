@@ -1,15 +1,39 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Clock, Sword, Eye, ChevronDown, Target, Coins, TrendingUp, TrendingDown, Minus, Zap, Shield, Crosshair, Activity, Award } from 'lucide-react';
+import { Clock, Sword, Eye, ChevronDown, Target, Coins, TrendingUp, TrendingDown, Minus, Zap, Shield, Crosshair, Activity, Award, LineChart, Loader2 } from 'lucide-react';
 import { getChampionIconUrl, getItemIconUrl, getSummonerSpellIconUrl } from '@/lib/riot-api';
 import { TowerIcon, DragonIcon, BaronIcon, HeraldIcon, GrubsIcon, AtakhanIcon } from '@/components/icons/objective-icons';
+import { GoldGraph } from '@/components/gold-graph';
 import { getQueueInfo } from '@/lib/constants/queues';
 import { cn } from '@/lib/utils';
-import type { MatchSummary, Participant } from '@/types/riot';
+import type { MatchSummary, Participant, TimelineFrame } from '@/types/riot';
+
+// Champion benchmark data from high elo
+export interface ChampionBenchmark {
+  championId: number;
+  championName: string;
+  role: string;
+  tier: string;
+  gamesAnalyzed: number;
+  avgKills: number | null; // x100
+  avgDeaths: number | null;
+  avgAssists: number | null;
+  avgKda: number | null; // x100
+  winRate: number | null; // x100
+  avgCsPerMin: number | null; // x100
+  avgGoldPerMin: number | null;
+  avgDamagePerMin: number | null;
+  avgDamageShare: number | null;
+  avgVisionScorePerMin: number | null; // x100
+  avgWardsPlaced: number | null;
+  avgControlWardsPlaced: number | null;
+  avgKillParticipation: number | null;
+  avgSoloKills: number | null; // x100
+}
 
 // Game performance score calculation
 interface GameScore {
@@ -28,7 +52,8 @@ function calculateGameScore(
   allParticipants: Participant[],
   gameDuration: number,
   isWin: boolean,
-  teamObjectives?: MatchSummary['teams'][0]
+  teamObjectives?: MatchSummary['teams'][0],
+  benchmark?: ChampionBenchmark
 ): GameScore {
   const minutes = gameDuration / 60;
   const teammates = allParticipants.filter(p => p.teamId === participant.teamId);
@@ -80,30 +105,78 @@ function calculateGameScore(
   let csDiff = 0;
   let xpDiff = 0;
   let visionDiff = 0;
+  let damageDiff = 0;
+  let killsDiff = 0;
+  let deathsDiff = 0;
+  let controlWardsDiff = 0;
+  let levelDiff = 0;
+  let oppKda = 0;
+  let oppKillParticipation = 0;
+  let oppDamageShare = 0;
+  let oppCsPerMin = 0;
+  let oppVisionPerMin = 0;
 
   if (opponent) {
     const oppCs = opponent.totalMinionsKilled + opponent.neutralMinionsKilled;
+    const oppTeammates = allParticipants.filter(p => p.teamId === opponent.teamId);
+    const oppTeamKills = oppTeammates.reduce((sum, p) => sum + p.kills, 0);
+    const oppTeamDamage = oppTeammates.reduce((sum, p) => sum + p.totalDamageDealtToChampions, 0);
+
     goldDiff = participant.goldEarned - opponent.goldEarned;
     csDiff = cs - oppCs;
     xpDiff = participant.champExperience - opponent.champExperience;
     visionDiff = participant.visionScore - opponent.visionScore;
+    damageDiff = participant.totalDamageDealtToChampions - opponent.totalDamageDealtToChampions;
+    killsDiff = participant.kills - opponent.kills;
+    deathsDiff = participant.deaths - opponent.deaths;
+    controlWardsDiff = (participant.visionWardsBoughtInGame || 0) - (opponent.visionWardsBoughtInGame || 0);
+    levelDiff = participant.champLevel - opponent.champLevel;
+
+    oppKda = opponent.deaths === 0
+      ? (opponent.kills + opponent.assists) * 1.5
+      : (opponent.kills + opponent.assists) / opponent.deaths;
+    oppKillParticipation = oppTeamKills > 0
+      ? ((opponent.kills + opponent.assists) / oppTeamKills) * 100
+      : 0;
+    oppDamageShare = oppTeamDamage > 0
+      ? (opponent.totalDamageDealtToChampions / oppTeamDamage) * 100
+      : 0;
+    oppCsPerMin = oppCs / minutes;
+    oppVisionPerMin = opponent.visionScore / minutes;
   }
+
+  // ===== HELPER: Compare vs benchmark =====
+  // Returns a score 0-100 based on how player compares to benchmark
+  // 100 = at benchmark, >100 = better than benchmark (capped at 120), <100 = worse
+  const compareVsBenchmark = (playerValue: number, benchmarkValue: number | null | undefined, fallback: number): number => {
+    const target = (benchmarkValue != null ? benchmarkValue : fallback);
+    if (target === 0) return 50;
+    const ratio = playerValue / target;
+    // Score: 50 at 0%, 100 at 100% of benchmark, up to 120 at 150%+ of benchmark
+    return Math.min(120, Math.max(0, ratio * 100));
+  };
 
   // ===== COMBAT SCORE (0-100) =====
   const kda = participant.deaths === 0
     ? (participant.kills + participant.assists) * 1.5
     : (participant.kills + participant.assists) / participant.deaths;
-  const kdaScore = Math.min(100, kda * 12);
 
-  // KP score - role adjusted
-  const kpTarget = isSupport || isJungler ? 70 : 55;
-  const kpScore = Math.min(100, (killParticipation / kpTarget) * 100);
+  // Compare KDA vs benchmark (benchmark avgKda is x100)
+  const benchmarkKda = benchmark?.avgKda ? benchmark.avgKda / 100 : null;
+  const kdaFallback = isSupport ? 4.0 : 3.0;
+  const kdaScore = compareVsBenchmark(kda, benchmarkKda, kdaFallback);
 
-  // Damage share score - role adjusted
-  const dmgTarget = isSupport ? 10 : isADC || isMid ? 28 : 20;
+  // KP score - compare vs benchmark
+  const benchmarkKp = benchmark?.avgKillParticipation || null;
+  const kpFallback = isSupport || isJungler ? 65 : 50;
+  const kpScore = compareVsBenchmark(killParticipation, benchmarkKp, kpFallback);
+
+  // Damage share score - compare vs benchmark
+  const benchmarkDmgShare = benchmark?.avgDamageShare || null;
+  const dmgFallback = isSupport ? 10 : isADC || isMid ? 25 : 18;
   const dmgScore = isSupport
-    ? Math.min(100, 70 + damageShareTeam * 2) // Supports get baseline + small bonus
-    : Math.min(100, (damageShareTeam / dmgTarget) * 100);
+    ? Math.min(100, 70 + damageShareTeam * 2) // Supports still get baseline + small bonus
+    : compareVsBenchmark(damageShareTeam, benchmarkDmgShare, dmgFallback);
 
   // Solo kills bonus (multi kills indicate solo carry potential)
   const soloKillsBonus = Math.min(15, (participant.largestMultiKill || 0) * 3);
@@ -150,17 +223,19 @@ function calculateGameScore(
   const jungleCamps = participant.neutralMinionsKilled || 0;
   const jungleCampsPerMin = jungleCamps / minutes;
 
-  // CS expectations by role
-  const csTarget = isSupport ? 1.5 : isJungler ? 5.5 : isTop ? 7.5 : 8.5;
-  const csScore = Math.min(100, (csPerMin / csTarget) * 100);
+  // CS/min vs benchmark (benchmark avgCsPerMin is x100)
+  const benchmarkCsPerMin = benchmark?.avgCsPerMin ? benchmark.avgCsPerMin / 100 : null;
+  const csFallback = isSupport ? 1.5 : isJungler ? 5.5 : isTop ? 7.5 : 8.5;
+  const csScore = compareVsBenchmark(csPerMin, benchmarkCsPerMin, csFallback);
 
   // Jungler-specific: jungle camps efficiency
-  const jungleCampsTarget = 5.0; // Good junglers should clear ~5 camps/min
+  const jungleCampsTarget = 5.0;
   const jungleCampsScore = isJungler ? Math.min(100, (jungleCampsPerMin / jungleCampsTarget) * 100) : 0;
 
-  // Gold efficiency
-  const goldTarget = isSupport ? 320 : isJungler ? 400 : 480;
-  const goldScore = Math.min(100, (goldPerMin / goldTarget) * 100);
+  // Gold/min vs benchmark
+  const benchmarkGoldPerMin = benchmark?.avgGoldPerMin || null;
+  const goldFallback = isSupport ? 320 : isJungler ? 400 : 480;
+  const goldScore = compareVsBenchmark(goldPerMin, benchmarkGoldPerMin, goldFallback);
 
   // CS diff vs opponent bonus (laners only)
   const csDiffBonus = (!isSupport && !isJungler && opponent)
@@ -188,19 +263,22 @@ function calculateGameScore(
       : Math.min(100, csScore * 0.45 + goldScore * 0.35 + (csDiffBonus + goldDiffBonus + 20) * 0.20);
 
   // ===== VISION SCORE (0-100) =====
-  // Vision expectations by role
-  const visionTarget = isSupport ? 2.2 : isJungler ? 1.0 : 0.7;
-  const visionScoreBase = Math.min(100, (visionPerMin / visionTarget) * 100);
+  // Vision/min vs benchmark (benchmark avgVisionScorePerMin is x100)
+  const benchmarkVisionPerMin = benchmark?.avgVisionScorePerMin ? benchmark.avgVisionScorePerMin / 100 : null;
+  const visionFallback = isSupport ? 2.2 : isJungler ? 1.0 : 0.7;
+  const visionScoreBase = compareVsBenchmark(visionPerMin, benchmarkVisionPerMin, visionFallback);
 
-  // Control wards bought bonus
+  // Control wards vs benchmark (benchmark avgControlWardsPlaced is x100)
   const controlWardsBought = participant.visionWardsBoughtInGame || 0;
-  const controlWardBonus = Math.min(15, controlWardsBought * 4);
+  const benchmarkControlWards = benchmark?.avgControlWardsPlaced ? benchmark.avgControlWardsPlaced / 100 : null;
+  const controlWardFallback = isSupport ? 4 : 2;
+  const controlWardBonus = Math.min(15, compareVsBenchmark(controlWardsBought, benchmarkControlWards, controlWardFallback) * 0.15);
 
-  // Wards placed bonus (especially for supports)
+  // Wards placed vs benchmark (benchmark avgWardsPlaced is x100)
   const wardsPlaced = participant.wardsPlaced || 0;
-  const wardsPlacedPerMin = wardsPlaced / minutes;
-  const wardsPlacedTarget = isSupport ? 1.5 : isJungler ? 0.6 : 0.4;
-  const wardsPlacedBonus = Math.min(10, (wardsPlacedPerMin / wardsPlacedTarget) * 10);
+  const benchmarkWardsPlaced = benchmark?.avgWardsPlaced ? benchmark.avgWardsPlaced / 100 : null;
+  const wardsPlacedFallback = isSupport ? 25 : isJungler ? 10 : 8;
+  const wardsPlacedBonus = Math.min(10, compareVsBenchmark(wardsPlaced, benchmarkWardsPlaced, wardsPlacedFallback) * 0.10);
 
   // Wards killed bonus (denying enemy vision)
   const wardsKilled = participant.wardsKilled || 0;
@@ -352,30 +430,95 @@ function calculateGameScore(
     }
   }
 
-  // --- VS Opponent ---
+  // --- VS Opponent (Lane Matchup) ---
   if (opponent) {
-    if (goldDiff > 2000) {
-      insights.push(`Lane gap: +${Math.round(goldDiff)}g on opponent`);
-    } else if (goldDiff > 800) {
-      insights.push(`Won lane: +${Math.round(goldDiff)}g lead`);
-    } else if (goldDiff < -2000) {
-      improvements.push(`Lost lane: ${Math.abs(Math.round(goldDiff))}g behind - got zoned or ganked`);
-    } else if (goldDiff < -800) {
-      improvements.push(`Fell behind: ${Math.abs(Math.round(goldDiff))}g down in lane`);
+    const oppName = opponent.championName;
+
+    // Gold diff analysis
+    if (goldDiff > 2500) {
+      insights.push(`Stomped ${oppName}: +${Math.round(goldDiff)}g lead`);
+    } else if (goldDiff > 1200) {
+      insights.push(`Won vs ${oppName}: +${Math.round(goldDiff)}g`);
+    } else if (goldDiff < -2500) {
+      improvements.push(`${oppName} had +${Math.abs(Math.round(goldDiff))}g - died early or got zoned`);
+    } else if (goldDiff < -1200) {
+      improvements.push(`${oppName} +${Math.abs(Math.round(goldDiff))}g ahead - farm safer, don't force trades`);
     }
 
+    // CS comparison (laners only)
     if (!isSupport && !isJungler) {
-      if (csDiff > 30) {
-        insights.push(`CS diff: +${csDiff} vs opponent - clean last-hitting`);
-      } else if (csDiff < -30) {
-        improvements.push(`CS diff: ${csDiff} - missed CS under pressure or bad backs`);
+      if (csDiff > 40) {
+        insights.push(`+${csDiff} CS vs ${oppName} (${csPerMin.toFixed(1)} vs ${oppCsPerMin.toFixed(1)}/min)`);
+      } else if (csDiff > 20) {
+        insights.push(`CS lead: +${csDiff} vs ${oppName}`);
+      } else if (csDiff < -40) {
+        improvements.push(`${oppName} +${Math.abs(csDiff)} CS (${oppCsPerMin.toFixed(1)} vs your ${csPerMin.toFixed(1)}/min)`);
+      } else if (csDiff < -20) {
+        improvements.push(`${oppName} +${Math.abs(csDiff)} CS - they last-hit better under tower`);
       }
     }
 
-    if (xpDiff > 1000) {
-      insights.push(`+${Math.round(xpDiff)} XP lead - level advantage in fights`);
-    } else if (xpDiff < -1500) {
-      improvements.push(`${Math.round(xpDiff)} XP behind - died too much or missed waves`);
+    // Kill/Death comparison
+    if (killsDiff >= 3) {
+      insights.push(`Dominated ${oppName}: ${participant.kills} kills vs their ${opponent.kills}`);
+    } else if (killsDiff <= -3) {
+      improvements.push(`${oppName} killed you ${opponent.kills} times vs your ${participant.kills} - respect their damage`);
+    }
+
+    if (deathsDiff <= -3 && opponent.deaths >= 4) {
+      insights.push(`${oppName} died ${opponent.deaths}x - punished their mistakes`);
+    } else if (deathsDiff >= 3 && participant.deaths >= 4) {
+      improvements.push(`You died ${participant.deaths}x vs ${oppName}'s ${opponent.deaths} - play safer after first death`);
+    }
+
+    // Damage comparison
+    if (!isSupport) {
+      if (damageDiff > 8000) {
+        insights.push(`+${Math.round(damageDiff / 1000)}k more damage than ${oppName}`);
+      } else if (damageDiff > 4000) {
+        insights.push(`Out-damaged ${oppName} by ${Math.round(damageDiff / 1000)}k`);
+      } else if (damageDiff < -8000) {
+        improvements.push(`${oppName} dealt ${Math.abs(Math.round(damageDiff / 1000))}k more - hit more abilities or auto in fights`);
+      } else if (damageDiff < -4000) {
+        improvements.push(`${oppName} +${Math.abs(Math.round(damageDiff / 1000))}k damage - position closer in teamfights`);
+      }
+    }
+
+    // Vision comparison
+    if (visionDiff > 15) {
+      insights.push(`Vision diff: +${visionDiff} vs ${oppName}`);
+    } else if (visionDiff < -15 && !isSupport) {
+      improvements.push(`${oppName} +${Math.abs(visionDiff)} vision - buy more pinks, use trinket`);
+    } else if (visionDiff < -20 && isSupport) {
+      improvements.push(`${oppName} support +${Math.abs(visionDiff)} vision - ward more aggressively`);
+    }
+
+    // Control wards comparison
+    if (controlWardsDiff >= 3) {
+      insights.push(`+${controlWardsDiff} more control wards than ${oppName}`);
+    } else if (controlWardsDiff <= -3) {
+      improvements.push(`${oppName} bought ${Math.abs(controlWardsDiff)} more pinks than you`);
+    }
+
+    // Level diff
+    if (levelDiff >= 2) {
+      insights.push(`+${levelDiff} levels on ${oppName} - XP advantage in fights`);
+    } else if (levelDiff <= -2) {
+      improvements.push(`${oppName} +${Math.abs(levelDiff)} levels - don't fight them when behind in XP`);
+    }
+
+    // KDA comparison
+    if (kda > oppKda + 2 && kda >= 3) {
+      insights.push(`KDA diff: ${kda.toFixed(1)} vs ${oppName}'s ${oppKda.toFixed(1)}`);
+    } else if (oppKda > kda + 2 && oppKda >= 3) {
+      improvements.push(`${oppName} had ${oppKda.toFixed(1)} KDA vs your ${kda.toFixed(1)} - they played cleaner`);
+    }
+
+    // Kill participation comparison
+    if (killParticipation > oppKillParticipation + 20) {
+      insights.push(`${Math.round(killParticipation)}% KP vs ${oppName}'s ${Math.round(oppKillParticipation)}% - more impactful`);
+    } else if (oppKillParticipation > killParticipation + 20) {
+      improvements.push(`${oppName} had ${Math.round(oppKillParticipation)}% KP vs your ${Math.round(killParticipation)}% - they roamed better`);
     }
   }
 
@@ -394,6 +537,8 @@ function calculateGameScore(
     }
   } else {
     // Support-specific metrics
+    const enemySupport = enemies.find(e => (e.teamPosition || e.individualPosition) === 'UTILITY');
+
     if (participant.totalHealsOnTeammates > 8000) {
       insights.push(`${Math.round(participant.totalHealsOnTeammates / 1000)}k healing - kept team alive`);
     } else if (participant.totalHealsOnTeammates > 5000) {
@@ -416,6 +561,64 @@ function calculateGameScore(
     } else if (assistRatio < 35) {
       improvements.push(`${Math.round(assistRatio)}% assist ratio - stay near carries in fights`);
     }
+
+    // Support vs Support comparison
+    if (enemySupport) {
+      const enemySuppName = enemySupport.championName;
+      const enemySuppVision = enemySupport.visionScore;
+      const enemySuppWards = enemySupport.wardsPlaced || 0;
+      const enemySuppControlWards = enemySupport.visionWardsBoughtInGame || 0;
+      const enemySuppWardsKilled = enemySupport.wardsKilled || 0;
+      const enemySuppKP = (() => {
+        const enemyTeammates = allParticipants.filter(p => p.teamId === enemySupport.teamId);
+        const enemyTeamKills = enemyTeammates.reduce((sum, p) => sum + p.kills, 0);
+        return enemyTeamKills > 0 ? ((enemySupport.kills + enemySupport.assists) / enemyTeamKills) * 100 : 0;
+      })();
+      const enemySuppCC = (enemySupport.timeCCingOthers || 0) / minutes;
+      const enemySuppAssists = enemySupport.assists;
+
+      // Vision comparison with enemy support
+      if (participant.visionScore > enemySuppVision + 20) {
+        insights.push(`Vision gap: ${participant.visionScore} vs ${enemySuppName}'s ${enemySuppVision}`);
+      } else if (enemySuppVision > participant.visionScore + 20) {
+        improvements.push(`${enemySuppName} had ${enemySuppVision} vision vs your ${participant.visionScore} - ward more`);
+      }
+
+      // Ward placement comparison
+      if (wardsPlaced > enemySuppWards + 10) {
+        insights.push(`+${wardsPlaced - enemySuppWards} more wards placed than ${enemySuppName}`);
+      } else if (enemySuppWards > wardsPlaced + 10) {
+        improvements.push(`${enemySuppName} placed ${enemySuppWards} wards vs your ${wardsPlaced}`);
+      }
+
+      // Wards killed comparison
+      if (wardsKilled > enemySuppWardsKilled + 5) {
+        insights.push(`Cleared ${wardsKilled} wards vs ${enemySuppName}'s ${enemySuppWardsKilled}`);
+      } else if (enemySuppWardsKilled > wardsKilled + 5) {
+        improvements.push(`${enemySuppName} killed ${enemySuppWardsKilled} wards vs your ${wardsKilled} - sweep more`);
+      }
+
+      // Assist comparison
+      if (participant.assists > enemySuppAssists + 5) {
+        insights.push(`${participant.assists} assists vs ${enemySuppName}'s ${enemySuppAssists} - higher impact`);
+      } else if (enemySuppAssists > participant.assists + 5) {
+        improvements.push(`${enemySuppName} had ${enemySuppAssists} assists vs your ${participant.assists} - roam with jungler`);
+      }
+
+      // KP comparison
+      if (killParticipation > enemySuppKP + 15) {
+        insights.push(`${Math.round(killParticipation)}% KP vs ${enemySuppName}'s ${Math.round(enemySuppKP)}%`);
+      } else if (enemySuppKP > killParticipation + 15) {
+        improvements.push(`${enemySuppName} ${Math.round(enemySuppKP)}% KP vs your ${Math.round(killParticipation)}% - be in more fights`);
+      }
+
+      // CC time comparison
+      if (ccTimePerMin > enemySuppCC + 2) {
+        insights.push(`${Math.round(ccTimePerMin)}s CC/min vs ${enemySuppName}'s ${Math.round(enemySuppCC)}s`);
+      } else if (enemySuppCC > ccTimePerMin + 2) {
+        improvements.push(`${enemySuppName} ${Math.round(enemySuppCC)}s CC/min vs your ${Math.round(ccTimePerMin)}s - hit more CC`);
+      }
+    }
   }
 
   // --- Farming ---
@@ -430,11 +633,46 @@ function calculateGameScore(
         improvements.push(`${jungleCampsPerMin.toFixed(1)} camps/min - full clear more, don't afk gank`);
       }
 
-      // Jungler vs enemy jungler
-      if (jungleGoldDiff > 1500) {
-        insights.push(`Jungle diff: +${Math.round(jungleGoldDiff)}g vs enemy JG`);
-      } else if (jungleGoldDiff < -1500) {
-        improvements.push(`Jungle diff: ${Math.round(jungleGoldDiff)}g - got invaded or pathed wrong`);
+      // Jungler vs enemy jungler - detailed analysis
+      if (enemyJungler) {
+        const enemyJgName = enemyJungler.championName;
+        const enemyJgKills = enemyJungler.kills;
+        const enemyJgDeaths = enemyJungler.deaths;
+        const enemyJgAssists = enemyJungler.assists;
+        const enemyJgCs = enemyJungler.totalMinionsKilled + enemyJungler.neutralMinionsKilled;
+        const enemyJgCsPerMin = enemyJgCs / minutes;
+        const enemyJgObjectiveDmg = enemyJungler.damageDealtToObjectives || 0;
+
+        if (jungleGoldDiff > 2000) {
+          insights.push(`Outjungled ${enemyJgName}: +${Math.round(jungleGoldDiff)}g lead`);
+        } else if (jungleGoldDiff > 1000) {
+          insights.push(`Ahead of ${enemyJgName}: +${Math.round(jungleGoldDiff)}g`);
+        } else if (jungleGoldDiff < -2000) {
+          improvements.push(`${enemyJgName} +${Math.abs(Math.round(jungleGoldDiff))}g - they invaded or ganked better`);
+        } else if (jungleGoldDiff < -1000) {
+          improvements.push(`${enemyJgName} +${Math.abs(Math.round(jungleGoldDiff))}g ahead - track their pathing`);
+        }
+
+        // Objective damage comparison
+        if (objectiveDamage > enemyJgObjectiveDmg + 5000) {
+          insights.push(`+${Math.round((objectiveDamage - enemyJgObjectiveDmg) / 1000)}k more objective dmg than ${enemyJgName}`);
+        } else if (enemyJgObjectiveDmg > objectiveDamage + 5000) {
+          improvements.push(`${enemyJgName} +${Math.round((enemyJgObjectiveDmg - objectiveDamage) / 1000)}k obj dmg - contest objectives harder`);
+        }
+
+        // Gank success comparison
+        if (participant.assists > enemyJgAssists + 3) {
+          insights.push(`${participant.assists} assists vs ${enemyJgName}'s ${enemyJgAssists} - better gank impact`);
+        } else if (enemyJgAssists > participant.assists + 3) {
+          improvements.push(`${enemyJgName} had ${enemyJgAssists} assists vs your ${participant.assists} - gank more or countergank`);
+        }
+
+        // Clear speed comparison
+        if (jungleCampsPerMin > enemyJgCsPerMin + 0.8) {
+          insights.push(`Faster clear: ${jungleCampsPerMin.toFixed(1)} vs ${enemyJgName}'s ${enemyJgCsPerMin.toFixed(1)} camps/min`);
+        } else if (enemyJgCsPerMin > jungleCampsPerMin + 0.8) {
+          improvements.push(`${enemyJgName} cleared ${enemyJgCsPerMin.toFixed(1)} vs your ${jungleCampsPerMin.toFixed(1)} camps/min`);
+        }
       }
     } else {
       const csGreat = isTop ? 7 : 8;
@@ -527,6 +765,36 @@ function calculateGameScore(
   if (isWin && participant.deaths <= 1) insights.push('Near-perfect game - almost deathless');
   else if (isWin && participant.deaths <= 3 && kda >= 4) insights.push('Clean win - minimal mistakes');
 
+  // --- Benchmark comparisons (vs high elo average) ---
+  if (benchmark && benchmark.gamesAnalyzed >= 50) {
+    const benchmarkKdaVal = benchmarkKda || kdaFallback;
+    const benchmarkCsVal = benchmarkCsPerMin || csFallback;
+    const benchmarkVisionVal = benchmarkVisionPerMin || visionFallback;
+
+    // KDA vs benchmark
+    if (kda > benchmarkKdaVal * 1.3) {
+      insights.push(`KDA ${((kda / benchmarkKdaVal) * 100 - 100).toFixed(0)}% above ${benchmark.championName} avg`);
+    } else if (kda < benchmarkKdaVal * 0.7) {
+      improvements.push(`KDA ${((1 - kda / benchmarkKdaVal) * 100).toFixed(0)}% below ${benchmark.championName} avg`);
+    }
+
+    // CS vs benchmark (laners)
+    if (!isSupport) {
+      if (csPerMin > benchmarkCsVal * 1.15) {
+        insights.push(`CS/min ${((csPerMin / benchmarkCsVal) * 100 - 100).toFixed(0)}% above avg`);
+      } else if (csPerMin < benchmarkCsVal * 0.8) {
+        improvements.push(`CS/min ${((1 - csPerMin / benchmarkCsVal) * 100).toFixed(0)}% below avg - practice CSing`);
+      }
+    }
+
+    // Vision vs benchmark
+    if (visionPerMin > benchmarkVisionVal * 1.3) {
+      insights.push(`Vision ${((visionPerMin / benchmarkVisionVal) * 100 - 100).toFixed(0)}% above avg`);
+    } else if (visionPerMin < benchmarkVisionVal * 0.6) {
+      improvements.push(`Vision ${((1 - visionPerMin / benchmarkVisionVal) * 100).toFixed(0)}% below avg`);
+    }
+  }
+
   // --- Fallback if no insights ---
   if (insights.length === 0) {
     if (isWin) {
@@ -553,11 +821,17 @@ interface MatchCardProps {
   currentPuuid: string;
   region: string;
   delay?: number;
+  benchmarks?: Record<string, ChampionBenchmark>; // Map of "championId-role" -> benchmark
 }
 
-export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardProps) {
+export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }: MatchCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'analysis'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'gold'>('overview');
+  const [timelineData, setTimelineData] = useState<TimelineFrame[] | null>(null);
+  const [timelineEvents, setTimelineEvents] = useState<ProcessedEvent[] | null>(null);
+  const [timelineTeamfights, setTimelineTeamfights] = useState<Teamfight[] | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   const { participant } = match;
   const queueInfo = getQueueInfo(match.queueId);
 
@@ -595,6 +869,14 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
     ? Math.round(((participant.kills + participant.assists) / teamKills) * 100)
     : 0;
 
+  // Get benchmark for this champion/role
+  const playerBenchmark = useMemo(() => {
+    if (!benchmarks) return undefined;
+    const role = participant.teamPosition || participant.individualPosition || '';
+    const normalizedRole = role === 'UTILITY' ? 'UTILITY' : role === 'BOTTOM' ? 'BOTTOM' : role;
+    return benchmarks[`${participant.championId}-${normalizedRole}`];
+  }, [benchmarks, participant]);
+
   // Calculate game score
   const gameScore = useMemo(() => {
     if (!match.allParticipants) return null;
@@ -604,9 +886,42 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
       match.allParticipants,
       match.gameDuration,
       match.win,
-      teamObjectives
+      teamObjectives,
+      playerBenchmark
     );
-  }, [match, participant]);
+  }, [match, participant, playerBenchmark]);
+
+  // Fetch timeline data when gold tab is selected
+  const fetchTimeline = useCallback(async () => {
+    if (timelineData || timelineLoading) return;
+
+    setTimelineLoading(true);
+    setTimelineError(null);
+
+    try {
+      const response = await fetch(`/api/timeline/${match.matchId}?region=${region}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch timeline');
+      }
+      const data = await response.json();
+      setTimelineData(data.frames);
+      setTimelineEvents(data.events || null);
+      setTimelineTeamfights(data.teamfights || null);
+    } catch (err) {
+      setTimelineError('Could not load gold graph');
+      console.error('Timeline fetch error:', err);
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, [match.matchId, region, timelineData, timelineLoading]);
+
+  // Handle tab change
+  const handleTabChange = useCallback((tab: 'overview' | 'analysis' | 'gold') => {
+    setActiveTab(tab);
+    if (tab === 'gold' && !timelineData && !timelineLoading) {
+      fetchTimeline();
+    }
+  }, [fetchTimeline, timelineData, timelineLoading]);
 
   return (
     <motion.div
@@ -784,7 +1099,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
             {/* Tabs */}
             <div className="flex border-b border-border/30">
               <button
-                onClick={(e) => { e.stopPropagation(); setActiveTab('overview'); }}
+                onClick={(e) => { e.stopPropagation(); handleTabChange('overview'); }}
                 className={cn(
                   'flex-1 px-4 py-2.5 text-sm font-medium transition-all',
                   activeTab === 'overview'
@@ -795,7 +1110,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
                 Overview
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); setActiveTab('analysis'); }}
+                onClick={(e) => { e.stopPropagation(); handleTabChange('analysis'); }}
                 className={cn(
                   'flex-1 px-4 py-2.5 text-sm font-medium transition-all',
                   activeTab === 'analysis'
@@ -804,6 +1119,17 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
                 )}
               >
                 Analysis
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleTabChange('gold'); }}
+                className={cn(
+                  'flex-1 px-4 py-2.5 text-sm font-medium transition-all flex items-center justify-center',
+                  activeTab === 'gold'
+                    ? 'text-primary border-b-2 border-primary bg-primary/5'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Gold Graph
               </button>
             </div>
 
@@ -875,7 +1201,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : activeTab === 'analysis' ? (
                 <GameAnalysisTab
                   participant={participant}
                   allParticipants={match.allParticipants}
@@ -883,6 +1209,17 @@ export function MatchCard({ match, currentPuuid, region, delay = 0 }: MatchCardP
                   isWin={match.win}
                   gameScore={gameScore}
                   teamObjectives={match.teams?.find(t => t.teamId === participant.teamId)}
+                />
+              ) : (
+                <GoldGraphTab
+                  timelineData={timelineData}
+                  loading={timelineLoading}
+                  error={timelineError}
+                  allParticipants={match.allParticipants}
+                  currentPuuid={currentPuuid}
+                  playerTeamId={participant.teamId}
+                  events={timelineEvents || undefined}
+                  teamfights={timelineTeamfights || undefined}
                 />
               )}
             </div>
@@ -1154,6 +1491,619 @@ function GameAnalysisTab({
         )}
       </div>
     </div>
+  );
+}
+
+// Types for timeline events
+interface ProcessedEvent {
+  timestamp: number;
+  minute: number;
+  type: 'KILL' | 'MULTI_KILL' | 'ACE' | 'DRAGON' | 'BARON' | 'HERALD' | 'TOWER' | 'INHIBITOR' | 'GRUBS';
+  teamId: number;
+  participantId?: number;
+  victimId?: number;
+  assistIds?: number[];
+  killCount?: number;
+  monsterType?: string;
+  towerType?: string;
+  goldSwing?: number;
+}
+
+interface Teamfight {
+  timestamp: number;
+  minute: number;
+  blueKills: number;
+  redKills: number;
+  events: ProcessedEvent[];
+}
+
+// Custom Gold Chart Component - SVG Line Chart
+function GoldChart({
+  data,
+  dataKey,
+  title,
+  icon,
+  color,
+  height = 140,
+  objectiveMarkers
+}: {
+  data: { minute: number; teamGoldDiff: number; playerGoldDiff: number }[];
+  dataKey: 'teamGoldDiff' | 'playerGoldDiff';
+  title: string;
+  icon: React.ReactNode;
+  color: 'primary' | 'amber';
+  height?: number;
+  objectiveMarkers?: { minute: number; type: string; isYourTeam: boolean }[];
+}) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      const observer = new ResizeObserver((entries) => {
+        setContainerWidth(entries[0].contentRect.width);
+      });
+      observer.observe(node);
+      setContainerWidth(node.getBoundingClientRect().width);
+      return () => observer.disconnect();
+    }
+  }, []);
+
+  const colorConfig = {
+    primary: { stroke: '#6366f1', text: 'text-primary' },
+    amber: { stroke: '#f59e0b', text: 'text-amber-500' }
+  };
+  const config = colorConfig[color];
+
+  // Calculate domain
+  const values = data.map(d => d[dataKey]);
+  const maxVal = Math.max(...values.map(Math.abs), 2000);
+  const yDomain = Math.ceil(maxVal / 2000) * 2000;
+  const minMinute = data.length > 0 ? data[0].minute : 0;
+  const maxMinute = data.length > 0 ? data[data.length - 1].minute : 30;
+
+  // Chart dimensions
+  const padding = { left: 36, right: 12 };
+  const chartWidth = containerWidth - padding.left - padding.right;
+  const chartHeight = height;
+
+  // Scale functions
+  const xScale = (minute: number) => {
+    const range = maxMinute - minMinute || 1;
+    return padding.left + ((minute - minMinute) / range) * chartWidth;
+  };
+  const yScale = (value: number) => {
+    return chartHeight / 2 - (value / yDomain) * (chartHeight / 2);
+  };
+
+  // Build smooth curve path using cardinal spline
+  const buildPath = useMemo(() => {
+    if (data.length < 2 || chartWidth <= 0) return { line: '', area: '' };
+
+    const points = data.map(d => ({
+      x: xScale(d.minute),
+      y: yScale(d[dataKey])
+    }));
+
+    // Simple smooth curve using quadratic bezier
+    let linePath = `M ${points[0].x} ${points[0].y}`;
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const cpX = (prev.x + curr.x) / 2;
+      linePath += ` Q ${prev.x + (curr.x - prev.x) * 0.5} ${prev.y}, ${cpX} ${(prev.y + curr.y) / 2}`;
+      if (i === points.length - 1) {
+        linePath += ` T ${curr.x} ${curr.y}`;
+      }
+    }
+
+    // Simpler line path for reliability
+    const simpleLine = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+    // Area path
+    const zeroY = yScale(0);
+    const areaPath = simpleLine +
+      ` L ${points[points.length - 1].x} ${zeroY}` +
+      ` L ${points[0].x} ${zeroY} Z`;
+
+    return { line: simpleLine, area: areaPath };
+  }, [data, dataKey, chartWidth, xScale, yScale]);
+
+  // Y-axis labels
+  const yLabels = [yDomain, yDomain / 2, 0, -yDomain / 2, -yDomain];
+
+  // X-axis labels
+  const xLabels = data.filter((_, i) =>
+    i === 0 || i === data.length - 1 || i % Math.max(1, Math.floor(data.length / 5)) === 0
+  );
+
+  const finalValue = data.length > 0 ? data[data.length - 1][dataKey] : 0;
+
+  // Handle mouse interaction
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (data.length === 0 || chartWidth <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left - padding.left;
+    const percent = x / chartWidth;
+    const index = Math.round(percent * (data.length - 1));
+    setHoveredIndex(Math.max(0, Math.min(data.length - 1, index)));
+  };
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className={cn('p-1.5 rounded-lg', color === 'primary' ? 'bg-primary/10' : 'bg-amber-500/10')}>
+              {icon}
+            </div>
+            <span className="text-sm font-medium text-foreground">{title}</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {hoveredIndex !== null && data[hoveredIndex] && (
+              <span className="text-xs text-muted-foreground">{data[hoveredIndex].minute}m</span>
+            )}
+            <span className={cn(
+              'text-sm font-bold tabular-nums',
+              (hoveredIndex !== null ? data[hoveredIndex]?.[dataKey] : finalValue) >= 0
+                ? config.text
+                : 'text-destructive'
+            )}>
+              {(() => {
+                const val = hoveredIndex !== null ? data[hoveredIndex]?.[dataKey] : finalValue;
+                return `${val >= 0 ? '+' : ''}${(val / 1000).toFixed(1)}k`;
+              })()}
+            </span>
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div className="flex">
+          {/* Y-axis labels */}
+          <div
+            className="flex flex-col justify-between text-[10px] text-muted-foreground tabular-nums text-right pr-2"
+            style={{ height, width: padding.left - 4 }}
+          >
+            {yLabels.map((label) => (
+              <span key={label} className="leading-none -translate-y-1">
+                {label === 0 ? '0' : `${label > 0 ? '+' : ''}${label / 1000}k`}
+              </span>
+            ))}
+          </div>
+
+          {/* SVG Chart */}
+          <div ref={containerRef} className="flex-1 relative">
+            <svg
+              width="100%"
+              height={chartHeight}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={() => setHoveredIndex(null)}
+              className="overflow-visible"
+            >
+              <defs>
+                <linearGradient id={`area-gradient-${dataKey}-${color}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={config.stroke} stopOpacity={0.2} />
+                  <stop offset="100%" stopColor={config.stroke} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+
+              {/* Grid lines */}
+              {yLabels.map((label) => (
+                <line
+                  key={label}
+                  x1={0}
+                  x2={chartWidth + padding.left}
+                  y1={yScale(label)}
+                  y2={yScale(label)}
+                  stroke={label === 0 ? 'currentColor' : 'currentColor'}
+                  strokeOpacity={label === 0 ? 0.2 : 0.06}
+                  strokeDasharray={label === 0 ? '4 4' : undefined}
+                  className="text-muted-foreground"
+                />
+              ))}
+
+              {/* Objective markers */}
+              {objectiveMarkers?.map((marker, idx) => (
+                <g key={idx}>
+                  <line
+                    x1={xScale(marker.minute)}
+                    x2={xScale(marker.minute)}
+                    y1={0}
+                    y2={chartHeight}
+                    stroke={marker.type === 'BARON' ? '#a855f7' : marker.type === 'DRAGON' ? '#f59e0b' : '#8b5cf6'}
+                    strokeWidth={1}
+                    strokeDasharray="3 3"
+                    strokeOpacity={0.4}
+                  />
+                  <circle
+                    cx={xScale(marker.minute)}
+                    cy={8}
+                    r={4}
+                    fill={marker.type === 'BARON' ? '#a855f7' : marker.type === 'DRAGON' ? '#f59e0b' : '#8b5cf6'}
+                  />
+                </g>
+              ))}
+
+              {/* Area fill */}
+              {buildPath.area && (
+                <motion.path
+                  d={buildPath.area}
+                  fill={`url(#area-gradient-${dataKey}-${color})`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                />
+              )}
+
+              {/* Line */}
+              {buildPath.line && (
+                <motion.path
+                  d={buildPath.line}
+                  fill="none"
+                  stroke={config.stroke}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  animate={{ pathLength: 1, opacity: 1 }}
+                  transition={{ duration: 0.8, ease: 'easeOut' }}
+                />
+              )}
+
+              {/* Hover elements */}
+              {hoveredIndex !== null && data[hoveredIndex] && chartWidth > 0 && (
+                <g>
+                  {/* Vertical line */}
+                  <line
+                    x1={xScale(data[hoveredIndex].minute)}
+                    x2={xScale(data[hoveredIndex].minute)}
+                    y1={0}
+                    y2={chartHeight}
+                    stroke={config.stroke}
+                    strokeWidth={1}
+                    strokeOpacity={0.3}
+                    strokeDasharray="4 4"
+                  />
+                  {/* Dot */}
+                  <circle
+                    cx={xScale(data[hoveredIndex].minute)}
+                    cy={yScale(data[hoveredIndex][dataKey])}
+                    r={5}
+                    fill={config.stroke}
+                    stroke="white"
+                    strokeWidth={2}
+                  />
+                </g>
+              )}
+            </svg>
+          </div>
+        </div>
+
+        {/* X-axis labels */}
+        <div className="flex justify-between mt-2 text-[10px] text-muted-foreground" style={{ marginLeft: padding.left }}>
+          {xLabels.map((d) => (
+            <span key={d.minute}>{d.minute}m</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Gold Graph Tab Component
+function GoldGraphTab({
+  timelineData,
+  loading,
+  error,
+  allParticipants,
+  currentPuuid,
+  playerTeamId,
+  events,
+  teamfights
+}: {
+  timelineData: TimelineFrame[] | null;
+  loading: boolean;
+  error: string | null;
+  allParticipants: Participant[];
+  currentPuuid: string;
+  playerTeamId: number;
+  events?: ProcessedEvent[];
+  teamfights?: Teamfight[];
+}) {
+  // Process timeline data for the chart
+  const chartData = useMemo(() => {
+    if (!timelineData || timelineData.length === 0) return [];
+
+    // Get participant IDs for each team
+    const blueTeamIds = allParticipants
+      .filter(p => p.teamId === 100)
+      .map(p => p.participantId);
+
+    // Find current player's participant ID
+    const currentPlayer = allParticipants.find(p => p.puuid === currentPuuid);
+    const currentPlayerId = currentPlayer?.participantId;
+
+    // Find opponent (same position on enemy team)
+    const currentPosition = currentPlayer?.teamPosition || currentPlayer?.individualPosition;
+    const opponent = allParticipants.find(p =>
+      p.teamId !== playerTeamId &&
+      (p.teamPosition === currentPosition || p.individualPosition === currentPosition)
+    );
+    const opponentId = opponent?.participantId;
+
+    // Process each frame
+    return timelineData.map((frame) => {
+      const minute = Math.round(frame.timestamp / 60000);
+
+      // Calculate team gold totals
+      let blueGold = 0;
+      let redGold = 0;
+      let playerGold = 0;
+      let opponentGold = 0;
+
+      Object.entries(frame.participantFrames).forEach(([id, pf]) => {
+        const participantId = parseInt(id);
+        if (blueTeamIds.includes(participantId)) {
+          blueGold += pf.totalGold;
+        } else {
+          redGold += pf.totalGold;
+        }
+
+        if (participantId === currentPlayerId) {
+          playerGold = pf.totalGold;
+        }
+        if (participantId === opponentId) {
+          opponentGold = pf.totalGold;
+        }
+      });
+
+      const teamGoldDiff = playerTeamId === 100 ? blueGold - redGold : redGold - blueGold;
+      const playerGoldDiff = playerGold - opponentGold;
+
+      return {
+        minute,
+        teamGoldDiff,
+        playerGoldDiff,
+        blueGold,
+        redGold,
+        timestamp: frame.timestamp
+      };
+    });
+  }, [timelineData, allParticipants, currentPuuid, playerTeamId]);
+
+  // Get player and opponent IDs for solo kill detection
+  const { currentPlayerId, opponentId, opponentChampion } = useMemo(() => {
+    const currentPlayer = allParticipants.find(p => p.puuid === currentPuuid);
+    const currentPosition = currentPlayer?.teamPosition || currentPlayer?.individualPosition;
+    const opponent = allParticipants.find(p =>
+      p.teamId !== playerTeamId &&
+      (p.teamPosition === currentPosition || p.individualPosition === currentPosition)
+    );
+    return {
+      currentPlayerId: currentPlayer?.participantId,
+      opponentId: opponent?.participantId,
+      opponentChampion: opponent?.championName || 'opponent'
+    };
+  }, [allParticipants, currentPuuid, playerTeamId]);
+
+  // Build key moments from teamfights, events, and solo kills
+  const keyMoments = useMemo(() => {
+    if (!teamfights && !events) {
+      // Fallback to old method if no events
+      if (chartData.length < 3) return [];
+
+      const moments: { minute: number; change: number; description: string; type: string; isPositive: boolean; details?: string }[] = [];
+
+      for (let i = 1; i < chartData.length; i++) {
+        const prevDiff = chartData[i - 1].teamGoldDiff;
+        const currDiff = chartData[i].teamGoldDiff;
+        const change = currDiff - prevDiff;
+
+        if (Math.abs(change) > 1500) {
+          moments.push({
+            minute: chartData[i].minute,
+            change,
+            description: change > 0 ? 'Gold swing in your favor' : 'Gold swing against you',
+            type: 'SWING',
+            isPositive: change > 0
+          });
+        }
+      }
+      return moments.slice(0, 5);
+    }
+
+    const moments: { minute: number; change: number; description: string; type: string; isPositive: boolean; details?: string }[] = [];
+
+    // Helper to get champion name by participant ID
+    const getChampionName = (participantId: number | undefined) => {
+      if (!participantId) return 'Unknown';
+      const participant = allParticipants.find(p => p.participantId === participantId);
+      return participant?.championName || 'Unknown';
+    };
+
+    // Detect kills involving the player
+    if (events && currentPlayerId) {
+      const playerKills = events.filter(e => {
+        if (e.type !== 'KILL') return false;
+        return e.participantId === currentPlayerId || e.victimId === currentPlayerId;
+      });
+
+      for (const kill of playerKills) {
+        const isPlayerKill = kill.participantId === currentPlayerId;
+        const isSoloKill = !kill.assistIds || kill.assistIds.length === 0;
+        const isVsLaneOpponent = (isPlayerKill && kill.victimId === opponentId) ||
+                                  (!isPlayerKill && kill.participantId === opponentId);
+
+        // Get champion names for context
+        const victimChamp = getChampionName(kill.victimId);
+        const killerChamp = getChampionName(kill.participantId);
+
+        let description = '';
+        if (isPlayerKill) {
+          description = isSoloKill ? `Solo killed ${victimChamp}` : `Killed ${victimChamp}`;
+        } else {
+          description = `Killed by ${killerChamp}`;
+        }
+
+        moments.push({
+          minute: kill.minute,
+          change: isPlayerKill ? (kill.goldSwing || 300) : -(kill.goldSwing || 300),
+          description,
+          type: isSoloKill && isVsLaneOpponent ? 'SOLO_KILL' : 'KILL',
+          isPositive: isPlayerKill
+        });
+      }
+    }
+
+    // Add teamfights
+    if (teamfights) {
+      for (const tf of teamfights) {
+        const yourTeamKills = playerTeamId === 100 ? tf.blueKills : tf.redKills;
+        const enemyKills = playerTeamId === 100 ? tf.redKills : tf.blueKills;
+        const isWon = yourTeamKills > enemyKills;
+        const goldChange = (yourTeamKills - enemyKills) * 450; // Approximate gold per kill
+
+        moments.push({
+          minute: tf.minute,
+          change: goldChange,
+          description: isWon
+            ? `Teamfight won ${yourTeamKills}-${enemyKills}`
+            : `Teamfight lost ${yourTeamKills}-${enemyKills}`,
+          type: 'TEAMFIGHT',
+          isPositive: isWon,
+          details: `${yourTeamKills + enemyKills} total kills`
+        });
+      }
+    }
+
+    // Add major objectives (deduplicated)
+    if (events) {
+      const majorEvents = events.filter(e =>
+        e.type === 'BARON' || e.type === 'DRAGON' || e.type === 'HERALD'
+      );
+
+      // Deduplicate by minute + type + teamId
+      const seenEvents = new Set<string>();
+
+      for (const event of majorEvents) {
+        const eventKey = `${event.minute}-${event.type}-${event.teamId}`;
+        if (seenEvents.has(eventKey)) continue;
+        seenEvents.add(eventKey);
+
+        const isYourTeam = event.teamId === playerTeamId;
+        let description = '';
+
+        if (event.type === 'BARON') {
+          description = isYourTeam ? 'Baron secured' : 'Enemy took Baron';
+        } else if (event.type === 'DRAGON') {
+          const dragonType = event.monsterType?.replace('_DRAGON', '') || 'Dragon';
+          description = isYourTeam ? `${dragonType} drake` : `Enemy ${dragonType} drake`;
+        } else if (event.type === 'HERALD') {
+          description = isYourTeam ? 'Herald secured' : 'Enemy took Herald';
+        }
+
+        moments.push({
+          minute: event.minute,
+          change: isYourTeam ? (event.goldSwing || 500) : -(event.goldSwing || 500),
+          description,
+          type: event.type,
+          isPositive: isYourTeam
+        });
+      }
+    }
+
+    // Deduplicate by minute (keep most important event per minute)
+    const deduped = new Map<number, typeof moments[0]>();
+    for (const m of moments) {
+      const existing = deduped.get(m.minute);
+      if (!existing) {
+        deduped.set(m.minute, m);
+      } else {
+        // Prioritize: objectives > teamfights > solo kills > kills
+        const priority = (type: string) => {
+          if (type === 'BARON' || type === 'DRAGON' || type === 'HERALD') return 4;
+          if (type === 'TEAMFIGHT') return 3;
+          if (type === 'SOLO_KILL') return 2;
+          return 1;
+        };
+        if (priority(m.type) > priority(existing.type)) {
+          deduped.set(m.minute, m);
+        }
+      }
+    }
+
+    // Sort by minute and return all events
+    return Array.from(deduped.values()).sort((a, b) => a.minute - b.minute);
+  }, [chartData, teamfights, events, playerTeamId, currentPlayerId, opponentId, opponentChampion, allParticipants]);
+
+  // Find objective events for markers (deduplicated)
+  const objectiveMarkers = useMemo(() => {
+    if (!events) return [];
+
+    const seen = new Set<string>();
+    return events
+      .filter(e => e.type === 'BARON' || e.type === 'DRAGON' || e.type === 'HERALD')
+      .filter(e => {
+        const key = `${e.minute}-${e.type}-${e.teamId}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(e => ({
+        minute: e.minute,
+        type: e.type,
+        isYourTeam: e.teamId === playerTeamId
+      }));
+  }, [events, playerTeamId]);
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="relative">
+          <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
+          <Loader2 className="h-10 w-10 animate-spin text-primary relative" />
+        </div>
+        <span className="text-sm text-muted-foreground mt-4">Loading gold data...</span>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="p-4 rounded-full bg-destructive/10 mb-3">
+          <Activity className="h-8 w-8 text-destructive" />
+        </div>
+        <span className="text-destructive text-sm font-medium">{error}</span>
+        <span className="text-xs text-muted-foreground mt-1">Timeline may not be available for older matches</span>
+      </div>
+    );
+  }
+
+  // No data yet
+  if (!timelineData || chartData.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="p-4 rounded-full bg-muted/20 mb-3">
+          <LineChart className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <span className="text-sm text-muted-foreground">No timeline data available</span>
+      </div>
+    );
+  }
+
+  return (
+    <GoldGraph
+      chartData={chartData}
+      objectiveMarkers={objectiveMarkers}
+      teamfights={teamfights || undefined}
+      keyMoments={keyMoments}
+      playerTeamId={playerTeamId}
+    />
   );
 }
 
