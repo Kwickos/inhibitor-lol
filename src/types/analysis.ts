@@ -31,6 +31,100 @@ export interface PlayerAnalysis {
 
   // Improvement suggestions
   improvements: ImprovementSuggestion[];
+
+  // Timeline-based analysis (new)
+  timelineAnalysis?: TimelineAnalysis;
+}
+
+// Timeline-based deep analysis
+export interface TimelineAnalysis {
+  // Gold progression analysis
+  goldAnalysis: GoldAnalysis;
+  // Lead/throw detection
+  leadAnalysis: LeadAnalysis;
+  // Power spike timing
+  powerSpikeAnalysis: PowerSpikeAnalysis;
+}
+
+export interface GoldAnalysis {
+  // Average gold at key timestamps
+  avgGoldAt10: number;
+  avgGoldAt15: number;
+  avgGoldAt20: number;
+  // Gold difference vs lane opponent
+  avgGoldDiffAt10: number;
+  avgGoldDiffAt15: number;
+  avgGoldDiffAt20: number;
+  // Gold generation breakdown (average per game)
+  avgGoldFromKills: number;
+  avgGoldFromCS: number;
+  avgGoldFromObjectives: number;
+  // Worst gold swing periods
+  worstGoldSwings: GoldSwingPeriod[];
+  // Games analyzed with timeline
+  gamesWithTimeline: number;
+}
+
+export interface GoldSwingPeriod {
+  matchId: string;
+  startMinute: number;
+  endMinute: number;
+  goldLost: number;
+  reason: 'deaths' | 'cs_deficit' | 'objective_loss' | 'mixed';
+  details: string;
+}
+
+export interface LeadAnalysis {
+  // How often player has a lead at different points
+  leadRateAt10: number; // % of games with gold lead at 10min
+  leadRateAt15: number;
+  leadRateAt20: number;
+  // Lead conversion
+  leadConversionRate: number; // % of games where lead at 15min -> win
+  // Throw rate
+  throwRate: number; // % of games where had 2k+ lead but lost
+  avgThrowMinute: number; // Average minute when throws happen
+  // Comeback rate
+  comebackRate: number; // % of games where was 2k+ behind but won
+  // Biggest leads/deficits
+  avgMaxLead: number;
+  avgMaxDeficit: number;
+  // Notable games
+  biggestThrow?: ThrowGame;
+  bestComeback?: ComebackGame;
+}
+
+export interface ThrowGame {
+  matchId: string;
+  maxLead: number;
+  leadAtMinute: number;
+  throwAtMinute: number;
+  finalResult: 'loss';
+}
+
+export interface ComebackGame {
+  matchId: string;
+  maxDeficit: number;
+  deficitAtMinute: number;
+  comebackAtMinute: number;
+  finalResult: 'win';
+}
+
+export interface PowerSpikeAnalysis {
+  // Average timing for key item completions
+  avgFirstItemMinute: number;
+  avgSecondItemMinute: number;
+  avgThirdItemMinute: number;
+  // Comparison to benchmarks
+  firstItemDelta: number; // positive = slower than benchmark
+  secondItemDelta: number;
+  thirdItemDelta: number;
+  // Performance correlation
+  winRateWithFastSpike: number; // Win rate when items are on time
+  winRateWithSlowSpike: number; // Win rate when items are late
+  // Level progression
+  avgLevelAt10: number;
+  avgLevelDiffAt10: number;
 }
 
 export interface OverallStats {

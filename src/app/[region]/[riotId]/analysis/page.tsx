@@ -19,12 +19,16 @@ import {
   Users,
   Award,
   ChevronRight,
+  Clock,
+  Coins,
+  AlertTriangle,
+  Trophy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { getChampionIconUrl } from '@/lib/riot-api';
-import type { PlayerAnalysis, AnalysisInsight, ImprovementSuggestion, BenchmarkMetric } from '@/types/analysis';
+import type { PlayerAnalysis, AnalysisInsight, ImprovementSuggestion, BenchmarkMetric, TimelineAnalysis } from '@/types/analysis';
 import { cn } from '@/lib/utils';
 
 interface PageProps {
@@ -154,6 +158,11 @@ export default function AnalysisPage({ params }: PageProps) {
 
         {/* Performance Trends */}
         <TrendsSection trends={analysis.trends} />
+
+        {/* Timeline Analysis (Gold, Leads, Power Spikes) */}
+        {analysis.timelineAnalysis && (
+          <TimelineAnalysisSection timelineAnalysis={analysis.timelineAnalysis} />
+        )}
       </div>
 
       <footer className="mt-auto border-t border-border/30 py-6">
@@ -540,6 +549,349 @@ function TrendsSection({ trends }: { trends: PlayerAnalysis['trends'] }) {
           </div>
         ))}
       </div>
+    </motion.div>
+  );
+}
+
+function TimelineAnalysisSection({ timelineAnalysis }: { timelineAnalysis: TimelineAnalysis }) {
+  const { goldAnalysis, leadAnalysis, powerSpikeAnalysis } = timelineAnalysis;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.7 }}
+      className="space-y-6"
+    >
+      <h2 className="text-xl font-bold flex items-center gap-2">
+        <Clock className="h-5 w-5 text-primary" />
+        Timeline Deep Analysis
+        <span className="text-sm font-normal text-muted-foreground ml-2">
+          ({goldAnalysis.gamesWithTimeline} games analyzed)
+        </span>
+      </h2>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Gold Progression */}
+        <div className="bg-card border border-border/50 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Coins className="h-5 w-5 text-yellow-500" />
+            <h3 className="font-semibold">Gold Progression</h3>
+          </div>
+
+          <div className="space-y-4">
+            {/* Gold at key timestamps */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Average Gold</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className="text-lg font-bold">{(goldAnalysis.avgGoldAt10 / 1000).toFixed(1)}k</div>
+                  <div className="text-[10px] text-muted-foreground">@10min</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className="text-lg font-bold">{(goldAnalysis.avgGoldAt15 / 1000).toFixed(1)}k</div>
+                  <div className="text-[10px] text-muted-foreground">@15min</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className="text-lg font-bold">{(goldAnalysis.avgGoldAt20 / 1000).toFixed(1)}k</div>
+                  <div className="text-[10px] text-muted-foreground">@20min</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Gold diff vs opponent */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Gold Diff vs Lane Opponent</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className={cn(
+                  "rounded-lg p-2",
+                  goldAnalysis.avgGoldDiffAt10 >= 0 ? "bg-primary/20" : "bg-red-500/20"
+                )}>
+                  <div className={cn(
+                    "text-lg font-bold",
+                    goldAnalysis.avgGoldDiffAt10 >= 0 ? "text-primary" : "text-red-500"
+                  )}>
+                    {goldAnalysis.avgGoldDiffAt10 >= 0 ? '+' : ''}{goldAnalysis.avgGoldDiffAt10}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@10min</div>
+                </div>
+                <div className={cn(
+                  "rounded-lg p-2",
+                  goldAnalysis.avgGoldDiffAt15 >= 0 ? "bg-primary/20" : "bg-red-500/20"
+                )}>
+                  <div className={cn(
+                    "text-lg font-bold",
+                    goldAnalysis.avgGoldDiffAt15 >= 0 ? "text-primary" : "text-red-500"
+                  )}>
+                    {goldAnalysis.avgGoldDiffAt15 >= 0 ? '+' : ''}{goldAnalysis.avgGoldDiffAt15}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@15min</div>
+                </div>
+                <div className={cn(
+                  "rounded-lg p-2",
+                  goldAnalysis.avgGoldDiffAt20 >= 0 ? "bg-primary/20" : "bg-red-500/20"
+                )}>
+                  <div className={cn(
+                    "text-lg font-bold",
+                    goldAnalysis.avgGoldDiffAt20 >= 0 ? "text-primary" : "text-red-500"
+                  )}>
+                    {goldAnalysis.avgGoldDiffAt20 >= 0 ? '+' : ''}{goldAnalysis.avgGoldDiffAt20}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@20min</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Gold sources */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Gold Sources (avg/game)</p>
+              <div className="flex gap-2">
+                <div className="flex-1 bg-red-500/20 rounded-lg p-2 text-center">
+                  <div className="text-sm font-bold text-red-400">{(goldAnalysis.avgGoldFromKills / 1000).toFixed(1)}k</div>
+                  <div className="text-[10px] text-muted-foreground">From Kills</div>
+                </div>
+                <div className="flex-1 bg-yellow-500/20 rounded-lg p-2 text-center">
+                  <div className="text-sm font-bold text-yellow-400">{(goldAnalysis.avgGoldFromCS / 1000).toFixed(1)}k</div>
+                  <div className="text-[10px] text-muted-foreground">From CS</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lead Analysis */}
+        <div className="bg-card border border-border/50 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <h3 className="font-semibold">Lead & Throw Analysis</h3>
+          </div>
+
+          <div className="space-y-4">
+            {/* Lead rates */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Lead Rate (vs lane opponent)</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className={cn(
+                    "text-lg font-bold",
+                    leadAnalysis.leadRateAt10 >= 50 ? "text-primary" : "text-red-500"
+                  )}>
+                    {leadAnalysis.leadRateAt10.toFixed(0)}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@10min</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className={cn(
+                    "text-lg font-bold",
+                    leadAnalysis.leadRateAt15 >= 50 ? "text-primary" : "text-red-500"
+                  )}>
+                    {leadAnalysis.leadRateAt15.toFixed(0)}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@15min</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-2">
+                  <div className={cn(
+                    "text-lg font-bold",
+                    leadAnalysis.leadRateAt20 >= 50 ? "text-primary" : "text-red-500"
+                  )}>
+                    {leadAnalysis.leadRateAt20.toFixed(0)}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">@20min</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Key metrics */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-primary/10 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-primary">{leadAnalysis.leadConversionRate.toFixed(0)}%</div>
+                <div className="text-xs text-muted-foreground">Lead Conversion</div>
+                <div className="text-[10px] text-muted-foreground">Win when ahead @15</div>
+              </div>
+              <div className="bg-red-500/10 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-red-500">{leadAnalysis.throwRate.toFixed(0)}%</div>
+                <div className="text-xs text-muted-foreground">Throw Rate</div>
+                <div className="text-[10px] text-muted-foreground">2k+ lead → loss</div>
+              </div>
+            </div>
+
+            {/* Comeback rate */}
+            <div className="bg-violet-500/10 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold text-violet-400">{leadAnalysis.comebackRate.toFixed(0)}%</div>
+              <div className="text-xs text-muted-foreground">Comeback Rate (2k+ deficit → win)</div>
+            </div>
+
+            {/* Max lead/deficit */}
+            <div className="flex gap-2 text-center">
+              <div className="flex-1 bg-muted/30 rounded-lg p-2">
+                <div className="text-sm font-bold text-primary">+{(leadAnalysis.avgMaxLead / 1000).toFixed(1)}k</div>
+                <div className="text-[10px] text-muted-foreground">Avg Max Lead</div>
+              </div>
+              <div className="flex-1 bg-muted/30 rounded-lg p-2">
+                <div className="text-sm font-bold text-red-500">-{(leadAnalysis.avgMaxDeficit / 1000).toFixed(1)}k</div>
+                <div className="text-[10px] text-muted-foreground">Avg Max Deficit</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Power Spike Analysis */}
+        <div className="bg-card border border-border/50 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Trophy className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold">Power Spike Timing</h3>
+          </div>
+
+          <div className="space-y-4">
+            {/* Item timing */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Item Completion Time</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
+                  <span className="text-sm">1st Item</span>
+                  <div className="text-right">
+                    <span className="font-bold">{powerSpikeAnalysis.avgFirstItemMinute.toFixed(1)} min</span>
+                    <span className={cn(
+                      "text-xs ml-2",
+                      powerSpikeAnalysis.firstItemDelta <= 0 ? "text-primary" : "text-red-500"
+                    )}>
+                      ({powerSpikeAnalysis.firstItemDelta > 0 ? '+' : ''}{powerSpikeAnalysis.firstItemDelta.toFixed(1)})
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
+                  <span className="text-sm">2nd Item</span>
+                  <div className="text-right">
+                    <span className="font-bold">{powerSpikeAnalysis.avgSecondItemMinute.toFixed(1)} min</span>
+                    <span className={cn(
+                      "text-xs ml-2",
+                      powerSpikeAnalysis.secondItemDelta <= 0 ? "text-primary" : "text-red-500"
+                    )}>
+                      ({powerSpikeAnalysis.secondItemDelta > 0 ? '+' : ''}{powerSpikeAnalysis.secondItemDelta.toFixed(1)})
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
+                  <span className="text-sm">3rd Item</span>
+                  <div className="text-right">
+                    <span className="font-bold">{powerSpikeAnalysis.avgThirdItemMinute.toFixed(1)} min</span>
+                    <span className={cn(
+                      "text-xs ml-2",
+                      powerSpikeAnalysis.thirdItemDelta <= 0 ? "text-primary" : "text-red-500"
+                    )}>
+                      ({powerSpikeAnalysis.thirdItemDelta > 0 ? '+' : ''}{powerSpikeAnalysis.thirdItemDelta.toFixed(1)})
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                Delta vs benchmark (negative = faster than expected)
+              </p>
+            </div>
+
+            {/* Win rate correlation */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Spike Timing Impact</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-primary/20 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-primary">{powerSpikeAnalysis.winRateWithFastSpike.toFixed(0)}%</div>
+                  <div className="text-xs text-muted-foreground">WR with Fast Spike</div>
+                </div>
+                <div className="bg-red-500/20 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-red-500">{powerSpikeAnalysis.winRateWithSlowSpike.toFixed(0)}%</div>
+                  <div className="text-xs text-muted-foreground">WR with Slow Spike</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Level at 10 */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Level @10min</p>
+              <div className="flex gap-2">
+                <div className="flex-1 bg-muted/50 rounded-lg p-2 text-center">
+                  <div className="text-lg font-bold">{powerSpikeAnalysis.avgLevelAt10.toFixed(1)}</div>
+                  <div className="text-[10px] text-muted-foreground">Your Level</div>
+                </div>
+                <div className={cn(
+                  "flex-1 rounded-lg p-2 text-center",
+                  powerSpikeAnalysis.avgLevelDiffAt10 >= 0 ? "bg-primary/20" : "bg-red-500/20"
+                )}>
+                  <div className={cn(
+                    "text-lg font-bold",
+                    powerSpikeAnalysis.avgLevelDiffAt10 >= 0 ? "text-primary" : "text-red-500"
+                  )}>
+                    {powerSpikeAnalysis.avgLevelDiffAt10 >= 0 ? '+' : ''}{powerSpikeAnalysis.avgLevelDiffAt10.toFixed(1)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">vs Opponent</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Worst Gold Swings */}
+      {goldAnalysis.worstGoldSwings.length > 0 && (
+        <div className="bg-card border border-red-500/30 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingDown className="h-5 w-5 text-red-500" />
+            <h3 className="font-semibold">Worst Gold Swing Periods</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {goldAnalysis.worstGoldSwings.slice(0, 3).map((swing, idx) => (
+              <div key={idx} className="bg-red-500/10 rounded-lg p-3">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-sm font-medium">
+                    {swing.startMinute}-{swing.endMinute} min
+                  </span>
+                  <span className="text-red-500 font-bold">-{swing.goldLost}g</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{swing.details}</p>
+                <div className="mt-1">
+                  <span className={cn(
+                    "text-[10px] px-1.5 py-0.5 rounded",
+                    swing.reason === 'deaths' ? "bg-red-500/20 text-red-400" :
+                    swing.reason === 'cs_deficit' ? "bg-yellow-500/20 text-yellow-400" :
+                    "bg-muted text-muted-foreground"
+                  )}>
+                    {swing.reason.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notable Games */}
+      {(leadAnalysis.biggestThrow || leadAnalysis.bestComeback) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {leadAnalysis.biggestThrow && (
+            <div className="bg-card border border-red-500/30 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                <span className="font-semibold text-red-500">Biggest Throw</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Had a <span className="text-primary font-medium">+{(leadAnalysis.biggestThrow.maxLead / 1000).toFixed(1)}k</span> lead
+                at {leadAnalysis.biggestThrow.leadAtMinute} min, threw at {leadAnalysis.biggestThrow.throwAtMinute} min
+              </p>
+            </div>
+          )}
+          {leadAnalysis.bestComeback && (
+            <div className="bg-card border border-primary/30 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Trophy className="h-4 w-4 text-primary" />
+                <span className="font-semibold text-primary">Best Comeback</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Was <span className="text-red-500 font-medium">-{(leadAnalysis.bestComeback.maxDeficit / 1000).toFixed(1)}k</span> behind
+                at {leadAnalysis.bestComeback.deficitAtMinute} min, came back at {leadAnalysis.bestComeback.comebackAtMinute} min
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }

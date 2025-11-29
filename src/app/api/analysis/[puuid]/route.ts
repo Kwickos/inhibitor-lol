@@ -5,8 +5,9 @@ import { db } from '@/lib/db';
 import { championBenchmarks } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { RiotApiError } from '@/lib/riot-api';
+import { RiotApiError, getMatchTimeline } from '@/lib/riot-api';
 import type { Match, Participant, Team } from '@/types/riot';
+import { analyzeTimelines } from '@/lib/timeline-analysis';
 import {
   type PlayerAnalysis,
   type OverallStats,
@@ -18,6 +19,7 @@ import {
   type AnalysisInsight,
   type ImprovementSuggestion,
   type BenchmarkComparison,
+  type TimelineAnalysis,
   ROLE_BENCHMARKS,
   getRating,
   getPercentile,
@@ -202,6 +204,14 @@ async function calculateAnalysis(
   // Generate improvement suggestions
   const improvements = generateImprovements(weaknesses, roleStats, overallStats);
 
+  // Timeline analysis (fetch timelines for recent games)
+  let timelineAnalysis: TimelineAnalysis | undefined;
+  try {
+    timelineAnalysis = await calculateTimelineAnalysis(puuid, playerMatches.slice(0, 20), region as RegionKey);
+  } catch (e) {
+    console.warn('Failed to calculate timeline analysis:', e);
+  }
+
   // Calculate data quality based on number of games
   const gamesCount = playerMatches.length;
   let dataQuality: PlayerAnalysis['dataQuality'];
@@ -230,6 +240,7 @@ async function calculateAnalysis(
     strengths,
     weaknesses,
     improvements,
+    timelineAnalysis,
   };
 }
 
@@ -1503,4 +1514,86 @@ function getEmptyStats(): OverallStats {
     avgMissingPings: 0,
     avgDangerPings: 0,
   };
+}
+
+// Timeline analysis - fetch timelines and analyze gold/lead/power spikes
+async function calculateTimelineAnalysis(
+  puuid: string,
+  playerMatches: PlayerMatch[],
+  region: RegionKey
+): Promise<TimelineAnalysis | undefined> {
+  if (playerMatches.length === 0) return undefined;
+
+  // Get the main role for this player
+  const roleCounts: Record<string, number> = {};
+  for (const pm of playerMatches) {
+    const role = normalizeRole(pm.participant.teamPosition || pm.participant.individualPosition);
+    roleCounts[role] = (roleCounts[role] || 0) + 1;
+  }
+  const mainRole = Object.entries(roleCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'MIDDLE';
+
+  // Fetch timelines for recent games (limit to 10 to avoid too many API calls)
+  const timelineDataList: {
+    matchId: string;
+    frames: import('@/types/riot').TimelineFrame[];
+    participantId: number;
+    opponentId: number;
+    teamId: number;
+    win: boolean;
+    gameDuration: number;
+  }[] = [];
+
+  const gamesToFetch = playerMatches.slice(0, 10);
+
+  for (const pm of gamesToFetch) {
+    try {
+      const timeline = await getMatchTimeline(pm.match.metadata.matchId, region);
+
+      // Find participant ID for this player
+      const participantMapping = timeline.info.participants.find(p => p.puuid === puuid);
+      if (!participantMapping) continue;
+
+      const participantId = participantMapping.participantId;
+      const teamId = participantId <= 5 ? 100 : 200;
+
+      // Find lane opponent (same role, opposite team)
+      const playerRole = normalizeRole(pm.participant.teamPosition || pm.participant.individualPosition);
+      let opponentId = participantId <= 5 ? participantId + 5 : participantId - 5; // Default to mirror
+
+      // Try to find actual lane opponent by role
+      for (const p of pm.allParticipants) {
+        if (p.teamId !== pm.participant.teamId) {
+          const oppRole = normalizeRole(p.teamPosition || p.individualPosition);
+          if (oppRole === playerRole) {
+            const oppMapping = timeline.info.participants.find(tp => tp.puuid === p.puuid);
+            if (oppMapping) {
+              opponentId = oppMapping.participantId;
+              break;
+            }
+          }
+        }
+      }
+
+      timelineDataList.push({
+        matchId: pm.match.metadata.matchId,
+        frames: timeline.info.frames,
+        participantId,
+        opponentId,
+        teamId,
+        win: pm.participant.win,
+        gameDuration: pm.gameDuration,
+      });
+
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 100));
+    } catch (e) {
+      console.warn(`Failed to fetch timeline for match ${pm.match.metadata.matchId}:`, e);
+    }
+  }
+
+  if (timelineDataList.length === 0) {
+    return undefined;
+  }
+
+  return analyzeTimelines(timelineDataList, mainRole);
 }
