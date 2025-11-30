@@ -1054,21 +1054,40 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
           </div>
         </div>
 
-        {/* Game Score Badge */}
+        {/* Game Score Badge - Refined design */}
         {gameScore && (
           <div className="hidden sm:flex flex-col items-center justify-center px-2">
             <div className={cn(
-              'text-lg font-bold w-10 h-10 rounded-lg flex items-center justify-center',
-              gameScore.grade === 'S+' && 'bg-gradient-to-br from-amber-400 to-orange-500 text-white',
-              gameScore.grade === 'S' && 'bg-gradient-to-br from-amber-300 to-amber-500 text-white',
-              gameScore.grade === 'A' && 'bg-gradient-to-br from-indigo-400 to-primary text-white',
-              gameScore.grade === 'B' && 'bg-gradient-to-br from-cyan-400 to-teal-500 text-white',
-              gameScore.grade === 'C' && 'bg-gradient-to-br from-zinc-400 to-zinc-600 text-white',
-              gameScore.grade === 'D' && 'bg-gradient-to-br from-red-400 to-red-600 text-white',
+              'relative w-11 h-11 rounded-lg flex items-center justify-center border backdrop-blur-sm transition-all',
+              gameScore.grade === 'S+' && 'bg-primary/15 border-primary/50 shadow-[0_0_20px_rgba(99,102,241,0.3)]',
+              gameScore.grade === 'S' && 'bg-primary/10 border-primary/40 shadow-[0_0_12px_rgba(99,102,241,0.2)]',
+              gameScore.grade === 'A' && 'bg-primary/5 border-primary/25',
+              gameScore.grade === 'B' && 'bg-muted/30 border-border/50',
+              gameScore.grade === 'C' && 'bg-muted/20 border-border/40',
+              gameScore.grade === 'D' && 'bg-destructive/10 border-destructive/30',
             )}>
-              {gameScore.grade}
+              <span className={cn(
+                'text-base font-semibold font-mono tracking-tight',
+                gameScore.grade === 'S+' && 'text-primary',
+                gameScore.grade === 'S' && 'text-primary',
+                gameScore.grade === 'A' && 'text-primary/80',
+                gameScore.grade === 'B' && 'text-foreground/70',
+                gameScore.grade === 'C' && 'text-muted-foreground',
+                gameScore.grade === 'D' && 'text-destructive/80',
+              )}>
+                {gameScore.grade}
+              </span>
             </div>
-            <span className="text-[10px] text-muted-foreground mt-0.5">{gameScore.overall}/100</span>
+            <div className="flex items-center gap-0.5 mt-1">
+              <span className={cn(
+                'text-[10px] font-medium tabular-nums',
+                gameScore.overall >= 78 ? 'text-primary/70' :
+                gameScore.overall >= 55 ? 'text-foreground/50' :
+                'text-muted-foreground'
+              )}>
+                {gameScore.overall}
+              </span>
+            </div>
           </div>
         )}
 
@@ -1431,14 +1450,57 @@ function GameAnalysisTab({
 
   if (!gameScore) return null;
 
-  // Grade colors with glow
+  // Grade colors - refined, Linear-inspired design
+  // Uses primary (indigo) for good grades, transitions to muted, then destructive
   const gradeConfig = {
-    'S+': { bg: 'from-amber-500 to-orange-600', glow: 'shadow-amber-500/50', text: 'text-amber-400' },
-    'S': { bg: 'from-amber-400 to-amber-600', glow: 'shadow-amber-400/40', text: 'text-amber-400' },
-    'A': { bg: 'from-indigo-500 to-violet-600', glow: 'shadow-indigo-500/40', text: 'text-indigo-400' },
-    'B': { bg: 'from-cyan-500 to-teal-600', glow: 'shadow-cyan-500/30', text: 'text-cyan-400' },
-    'C': { bg: 'from-zinc-500 to-zinc-600', glow: 'shadow-zinc-500/20', text: 'text-zinc-400' },
-    'D': { bg: 'from-red-500 to-red-700', glow: 'shadow-red-500/30', text: 'text-red-400' },
+    'S+': {
+      bg: 'bg-primary/15',
+      border: 'border-primary/50',
+      text: 'text-primary',
+      glow: 'shadow-[0_0_20px_rgba(99,102,241,0.3)]',
+      ring: 'ring-1 ring-primary/30',
+      barBg: 'bg-primary',
+    },
+    'S': {
+      bg: 'bg-primary/10',
+      border: 'border-primary/40',
+      text: 'text-primary',
+      glow: 'shadow-[0_0_12px_rgba(99,102,241,0.2)]',
+      ring: 'ring-1 ring-primary/20',
+      barBg: 'bg-primary',
+    },
+    'A': {
+      bg: 'bg-primary/5',
+      border: 'border-primary/25',
+      text: 'text-primary/80',
+      glow: '',
+      ring: 'ring-1 ring-primary/15',
+      barBg: 'bg-primary/80',
+    },
+    'B': {
+      bg: 'bg-muted/30',
+      border: 'border-border/50',
+      text: 'text-foreground/70',
+      glow: '',
+      ring: 'ring-1 ring-border/30',
+      barBg: 'bg-foreground/50',
+    },
+    'C': {
+      bg: 'bg-muted/20',
+      border: 'border-border/40',
+      text: 'text-muted-foreground',
+      glow: '',
+      ring: 'ring-1 ring-border/20',
+      barBg: 'bg-muted-foreground/60',
+    },
+    'D': {
+      bg: 'bg-destructive/10',
+      border: 'border-destructive/30',
+      text: 'text-destructive/80',
+      glow: '',
+      ring: 'ring-1 ring-destructive/20',
+      barBg: 'bg-destructive/70',
+    },
   };
   const grade = gradeConfig[gameScore.grade] || gradeConfig['C'];
 
@@ -1512,32 +1574,33 @@ function GameAnalysisTab({
     >
       {/* Top Row: Grade + Core Stats */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Grade Card - Prominent */}
+        {/* Grade Card - Refined design */}
         <motion.div
           variants={scaleVariants}
           className="col-span-3 relative"
         >
           <div className={cn(
-            'h-full rounded-xl bg-gradient-to-br p-[1px]',
-            grade.bg
+            'h-full rounded-xl border backdrop-blur-sm p-4 flex flex-col items-center justify-center transition-all',
+            grade.bg,
+            grade.border,
+            grade.glow,
+            grade.ring
           )}>
-            <div className="h-full rounded-[11px] bg-card/95 backdrop-blur p-3 flex flex-col items-center justify-center">
-              <div className={cn(
-                'text-4xl font-black tracking-tighter',
-                grade.text
-              )}>
-                {gameScore.grade}
-              </div>
-              <div className="text-[10px] text-muted-foreground mt-1 uppercase tracking-widest">Grade</div>
-              <div className="mt-2 text-lg font-bold">{gameScore.overall}</div>
-              <div className="w-full bg-muted/30 rounded-full h-1 mt-1">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${gameScore.overall}%` }}
-                  transition={{ duration: 0.8, ease: 'easeOut' }}
-                  className={cn('h-full rounded-full bg-gradient-to-r', grade.bg)}
-                />
-              </div>
+            <div className={cn(
+              'text-3xl font-bold font-mono tracking-tight',
+              grade.text
+            )}>
+              {gameScore.grade}
+            </div>
+            <div className="text-[9px] text-muted-foreground mt-1.5 uppercase tracking-[0.15em] font-medium">Score</div>
+            <div className={cn('mt-2 text-xl font-semibold tabular-nums', grade.text)}>{gameScore.overall}</div>
+            <div className="w-full bg-muted/20 rounded-full h-1 mt-2 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${gameScore.overall}%` }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+                className={cn('h-full rounded-full', grade.barBg)}
+              />
             </div>
           </div>
         </motion.div>
