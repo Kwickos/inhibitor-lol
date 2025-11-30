@@ -370,88 +370,38 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       {!isLoading && !error && filteredMatches.length > 0 && (
         <>
           <motion.div
+            key={`${activeFilter}-${currentPage}`}
             className="space-y-6"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              hidden: { opacity: 0 },
-              visible: {
-                opacity: 1,
-                transition: {
-                  staggerChildren: 0.12,
-                  delayChildren: 0.05
-                }
-              }
-            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
           >
-            {groupedMatches.map((group) => (
-              <motion.div
-                key={group.date}
-                variants={{
-                  hidden: { opacity: 0 },
-                  visible: {
-                    opacity: 1,
-                    transition: {
-                      staggerChildren: 0.04,
-                      delayChildren: 0.02
-                    }
-                  }
-                }}
-              >
+            {groupedMatches.map((group, groupIndex) => (
+              <div key={group.date}>
                 {/* Day header */}
-                <motion.div
-                  className="flex items-center gap-3 mb-3"
-                  variants={{
-                    hidden: { opacity: 0, x: -15 },
-                    visible: {
-                      opacity: 1,
-                      x: 0,
-                      transition: {
-                        duration: 0.35,
-                        ease: [0.25, 0.46, 0.45, 0.94] as const
-                      }
-                    }
-                  }}
-                >
+                <div className="flex items-center gap-3 mb-3">
                   <div className="text-sm font-medium">
                     {group.label}
                   </div>
-                  <motion.div
-                    className="h-px flex-1 bg-border/50"
-                    variants={{
-                      hidden: { scaleX: 0, originX: 0 },
-                      visible: {
-                        scaleX: 1,
-                        transition: {
-                          duration: 0.4,
-                          ease: [0.25, 0.46, 0.45, 0.94] as const
-                        }
-                      }
-                    }}
-                  />
+                  <div className="h-px flex-1 bg-border/50" />
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-primary font-medium">{group.wins}W</span>
                     <span className="text-muted-foreground">/</span>
                     <span className="text-[#ef4444] font-medium">{group.losses}L</span>
                   </div>
-                </motion.div>
+                </div>
 
                 {/* Matches for this day */}
                 <div className="space-y-2">
-                  {group.matches.map((match) => (
+                  {group.matches.map((match, matchIndex) => (
                     <motion.div
                       key={match.matchId}
-                      variants={{
-                        hidden: { opacity: 0, y: 12, scale: 0.98 },
-                        visible: {
-                          opacity: 1,
-                          y: 0,
-                          scale: 1,
-                          transition: {
-                            duration: 0.35,
-                            ease: [0.25, 0.46, 0.45, 0.94] as const
-                          }
-                        }
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        duration: 0.25,
+                        delay: groupIndex * 0.05 + matchIndex * 0.03,
+                        ease: [0.25, 0.46, 0.45, 0.94]
                       }}
                     >
                       <MatchCard
@@ -464,7 +414,7 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
                     </motion.div>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             ))}
           </motion.div>
 
