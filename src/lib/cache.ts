@@ -479,15 +479,22 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
 
     if (playerMatchData.length === 0) return [];
 
-    // Get all match details from matches table
+    // Get match details in batches to avoid query size limits
     const matchIds = playerMatchData.map(pm => pm.matchId);
-    const matchDetails = await db
-      .select()
-      .from(matches)
-      .where(sql`${matches.matchId} IN (${sql.join(matchIds.map(id => sql`${id}`), sql`, `)})`);
+    const BATCH_SIZE = 50; // Fetch 50 matches at a time
+    const matchMap = new Map<string, typeof matches.$inferSelect>();
 
-    // Create a map for quick lookup
-    const matchMap = new Map(matchDetails.map(m => [m.matchId, m]));
+    for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
+      const batchIds = matchIds.slice(i, i + BATCH_SIZE);
+      const batchResults = await db
+        .select()
+        .from(matches)
+        .where(sql`${matches.matchId} IN (${sql.join(batchIds.map(id => sql`${id}`), sql`, `)})`);
+
+      for (const match of batchResults) {
+        matchMap.set(match.matchId, match);
+      }
+    }
 
     // Build summaries
     const summaries = [];
