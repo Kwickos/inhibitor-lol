@@ -1,7 +1,7 @@
 import { redis, CACHE_TTL, cacheKeys } from './redis';
 import { db } from './db';
 import { summoners, matches, ranks, playerMatches, championPositionRates } from '@/db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import type { RegionKey } from './constants/regions';
 import type {
   RiotAccount,
@@ -526,13 +526,17 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
   }
 }
 
-// Get champion stats from stored data
+// Get champion stats from stored data (ranked games only)
 export async function getChampionStats(puuid: string) {
   try {
+    // Filter for ranked games only (Solo/Duo 420, Flex 440)
     const playerMatchData = await db.query.playerMatches.findMany({
-      where: eq(playerMatches.puuid, puuid),
+      where: and(
+        eq(playerMatches.puuid, puuid),
+        inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED)
+      ),
       orderBy: desc(playerMatches.createdAt),
-      limit: 100, // Last 100 games
+      limit: 100, // Last 100 ranked games
     });
 
     // Aggregate stats by champion
@@ -592,10 +596,10 @@ export async function getChampionStats(puuid: string) {
   }
 }
 
-// Aggregate champion position rates from playerMatches
+// Aggregate champion position rates from playerMatches (ranked games only)
 export async function aggregateChampionPositionRates(): Promise<void> {
   try {
-    // Get all position counts grouped by champion
+    // Get all position counts grouped by champion (ranked games only for accurate data)
     const results = await db
       .select({
         championId: playerMatches.championId,
@@ -603,7 +607,10 @@ export async function aggregateChampionPositionRates(): Promise<void> {
         count: sql<number>`count(*)`.as('count'),
       })
       .from(playerMatches)
-      .where(sql`${playerMatches.teamPosition} IS NOT NULL AND ${playerMatches.teamPosition} != ''`)
+      .where(and(
+        sql`${playerMatches.teamPosition} IS NOT NULL AND ${playerMatches.teamPosition} != ''`,
+        inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED)
+      ))
       .groupBy(playerMatches.championId, playerMatches.teamPosition);
 
     const now = new Date();
