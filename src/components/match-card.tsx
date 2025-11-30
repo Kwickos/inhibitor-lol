@@ -147,13 +147,23 @@ function calculateGameScore(
 
   // ===== HELPER: Compare vs benchmark =====
   // Returns a score 0-100 based on how player compares to benchmark
-  // 100 = at benchmark, >100 = better than benchmark (capped at 120), <100 = worse
+  // More strict scaling: benchmark = good (70), not excellent (100)
+  // 100 = 130%+ of benchmark (exceptional)
+  // 70 = 100% of benchmark (good - meeting expectations)
+  // 50 = 80% of benchmark (average)
+  // 30 = 50% of benchmark (below average)
+  // 0 = 0% (terrible)
   const compareVsBenchmark = (playerValue: number, benchmarkValue: number | null | undefined, fallback: number): number => {
     const target = (benchmarkValue != null ? benchmarkValue : fallback);
-    if (target === 0) return 50;
+    if (target === 0) return 35;
     const ratio = playerValue / target;
-    // Score: 50 at 0%, 100 at 100% of benchmark, up to 120 at 150%+ of benchmark
-    return Math.min(120, Math.max(0, ratio * 100));
+
+    // Piecewise linear scaling for more realistic distribution
+    if (ratio >= 1.3) return Math.min(100, 85 + (ratio - 1.3) * 50); // 130%+ = 85-100
+    if (ratio >= 1.0) return 70 + (ratio - 1.0) * 50; // 100-130% = 70-85
+    if (ratio >= 0.8) return 50 + (ratio - 0.8) * 100; // 80-100% = 50-70
+    if (ratio >= 0.5) return 20 + (ratio - 0.5) * 100; // 50-80% = 20-50
+    return Math.max(0, ratio * 40); // 0-50% = 0-20
   };
 
   // ===== COMBAT SCORE (0-100) =====
@@ -305,7 +315,7 @@ function calculateGameScore(
       );
 
   // ===== OBJECTIVES SCORE (0-100) =====
-  let objectives = 40; // baseline
+  let objectives = 15; // low baseline - must earn it through actual objectives
 
   // Team objectives contribution
   if (teamObjectives) {
@@ -375,23 +385,63 @@ function calculateGameScore(
     weights = { combat: 0.25, farming: 0.25, vision: 0.10, objectives: 0.20, bonus: 0.20 };
   }
 
-  const bonusScore = Math.min(100, 50 + xpBonus + tankBonus + winBonus + (goldDiffBonus > 5 ? 5 : 0));
+  const bonusScore = Math.min(100, 25 + xpBonus + tankBonus + winBonus + (goldDiffBonus > 5 ? 5 : 0));
 
-  const overall = Math.min(100, Math.round(
+  // ===== PENALTIES FOR TERRIBLE PERFORMANCE =====
+  let penalty = 0;
+
+  // Death penalty: more than 8 deaths = penalty starts, scales harshly
+  if (participant.deaths > 8) {
+    penalty += (participant.deaths - 8) * 4; // -4 per death over 8
+  }
+
+  // KDA penalty: KDA < 1.0 is bad, < 0.5 is terrible
+  if (kda < 0.5) {
+    penalty += 15; // Terrible KDA
+  } else if (kda < 1.0) {
+    penalty += 8; // Bad KDA
+  }
+
+  // Kill participation penalty: less than 25% is terrible (not support)
+  if (!isSupport && killParticipation < 25 && teamTotalKills > 5) {
+    penalty += Math.max(0, (25 - killParticipation) * 0.5); // Up to -12.5
+  }
+
+  // Damage share penalty: less than 10% is terrible for carries
+  if ((isADC || isMid) && damageShareTeam < 10 && minutes > 15) {
+    penalty += Math.max(0, (10 - damageShareTeam) * 1.5); // Up to -15
+  }
+
+  // Gold penalty: significantly behind team average
+  const avgTeamGold = teamTotalGold / 5;
+  const goldRatio = participant.goldEarned / avgTeamGold;
+  if (!isSupport && goldRatio < 0.7) {
+    penalty += Math.max(0, (0.7 - goldRatio) * 30); // Up to -21 if at 0%
+  }
+
+  // Feeding penalty: deaths > kills + assists (net negative)
+  const netContribution = participant.kills + participant.assists - participant.deaths;
+  if (netContribution < -5) {
+    penalty += Math.abs(netContribution + 5) * 2; // -2 per net death below -5
+  }
+
+  const overall = Math.min(100, Math.max(0, Math.round(
     combat * weights.combat +
     farming * weights.farming +
     vision * weights.vision +
     objectives * weights.objectives +
-    bonusScore * weights.bonus
-  ));
+    bonusScore * weights.bonus -
+    penalty
+  )));
 
   // ===== GRADE CALCULATION =====
+  // Adjusted thresholds for stricter scoring
   let grade: GameScore['grade'];
-  if (overall >= 88) grade = 'S+';
-  else if (overall >= 78) grade = 'S';
-  else if (overall >= 68) grade = 'A';
-  else if (overall >= 55) grade = 'B';
-  else if (overall >= 42) grade = 'C';
+  if (overall >= 82) grade = 'S+';
+  else if (overall >= 70) grade = 'S';
+  else if (overall >= 58) grade = 'A';
+  else if (overall >= 45) grade = 'B';
+  else if (overall >= 32) grade = 'C';
   else grade = 'D';
 
   // ===== INSIGHTS & IMPROVEMENTS =====
