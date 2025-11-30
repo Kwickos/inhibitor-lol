@@ -62,51 +62,57 @@ export async function GET(request: NextRequest, { params }: Params) {
     }>();
 
     // Fetch matches and analyze teammates (only ranked)
-    await Promise.all(
-      matchIds.map(async (matchId) => {
-        try {
-          const match = await getMatch(matchId, region);
+    // Process in small batches to avoid DB connection limit
+    const batchSize = 5;
+    for (let i = 0; i < matchIds.length; i += batchSize) {
+      const batchMatchIds = matchIds.slice(i, i + batchSize);
 
-          // Only count ranked games
-          if (!RANKED_QUEUES.includes(match.info.queueId)) return;
+      await Promise.all(
+        batchMatchIds.map(async (matchId) => {
+          try {
+            const match = await getMatch(matchId, region);
 
-          // Find player's team
-          const player = match.info.participants.find(p => p.puuid === puuid);
-          if (!player) return;
+            // Only count ranked games
+            if (!RANKED_QUEUES.includes(match.info.queueId)) return;
 
-          const playerTeamId = player.teamId;
+            // Find player's team
+            const player = match.info.participants.find(p => p.puuid === puuid);
+            if (!player) return;
 
-          // Find teammates (same team, not the player)
-          const teammates = match.info.participants.filter(
-            p => p.teamId === playerTeamId && p.puuid !== puuid
-          );
+            const playerTeamId = player.teamId;
 
-          const isWin = player.win;
+            // Find teammates (same team, not the player)
+            const teammates = match.info.participants.filter(
+              p => p.teamId === playerTeamId && p.puuid !== puuid
+            );
 
-          for (const teammate of teammates) {
-            const existing = teammateStats.get(teammate.puuid);
+            const isWin = player.win;
 
-            if (existing) {
-              existing.games++;
-              if (isWin) existing.wins++;
-              // Update name in case it changed
-              existing.gameName = teammate.riotIdGameName;
-              existing.tagLine = teammate.riotIdTagline;
-            } else {
-              teammateStats.set(teammate.puuid, {
-                puuid: teammate.puuid,
-                gameName: teammate.riotIdGameName,
-                tagLine: teammate.riotIdTagline,
-                games: 1,
-                wins: isWin ? 1 : 0,
-              });
+            for (const teammate of teammates) {
+              const existing = teammateStats.get(teammate.puuid);
+
+              if (existing) {
+                existing.games++;
+                if (isWin) existing.wins++;
+                // Update name in case it changed
+                existing.gameName = teammate.riotIdGameName;
+                existing.tagLine = teammate.riotIdTagline;
+              } else {
+                teammateStats.set(teammate.puuid, {
+                  puuid: teammate.puuid,
+                  gameName: teammate.riotIdGameName,
+                  tagLine: teammate.riotIdTagline,
+                  games: 1,
+                  wins: isWin ? 1 : 0,
+                });
+              }
             }
+          } catch (error) {
+            console.warn(`Failed to fetch match ${matchId}:`, error);
           }
-        } catch (error) {
-          console.warn(`Failed to fetch match ${matchId}:`, error);
-        }
-      })
-    );
+        })
+      );
+    }
 
     // Filter teammates with minGames or more games together
     const frequentTeammates = Array.from(teammateStats.values())

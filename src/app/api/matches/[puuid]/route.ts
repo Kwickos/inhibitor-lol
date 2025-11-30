@@ -136,8 +136,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     const newMatchSummaries: MatchSummary[] = [];
 
     if (newMatchIds.length > 0) {
-      // Process new matches in batches
-      const batchSize = 20;
+      // Process new matches in batches (small batch size to avoid DB connection limit)
+      const batchSize = 5;
       for (let i = 0; i < newMatchIds.length; i += batchSize) {
         const batchIds = newMatchIds.slice(i, i + batchSize);
 
