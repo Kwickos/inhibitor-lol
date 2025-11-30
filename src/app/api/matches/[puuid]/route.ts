@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchSummaries } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getMatchIds as fetchMatchIdsFromRiot } from '@/lib/riot-api';
-import type { MatchSummary, Match } from '@/types/riot';
-
-// Queues to exclude (tutorials, practice tool, arena)
-const EXCLUDED_QUEUES = [2000, 2010, 2020]; // Tutorial queues
+import type { MatchSummary } from '@/types/riot';
 
 // Fetch new match IDs from Riot API
 // - UPDATE mode: stop when we find a known match (incremental update)
@@ -48,12 +45,9 @@ async function fetchNewMatchIds(
         }
 
         // Check if match is from the same region
-        // Match IDs are like "EUW1_123456", region param is like "euw"
-        // So we check if match region STARTS WITH the region param
         const matchRegion = id.split('_')[0]?.toLowerCase();
         const regionLower = region.toLowerCase();
         if (matchRegion && !matchRegion.startsWith(regionLower) && !regionLower.startsWith(matchRegion)) {
-          // Match from different region - in UPDATE mode stop, in FIRST_TIME skip
           if (!isFirstTime) {
             shouldStop = true;
             break;
@@ -69,18 +63,12 @@ async function fetchNewMatchIds(
 
       // Safety limits
       if (isFirstTime) {
-        // FIRST_TIME: fetch up to 500 matches
-        if (startIndex >= 500) {
-          break;
-        }
+        if (startIndex >= 500) break;
       } else {
-        // UPDATE: stop after finding known match or fetching 200 new ones
-        if (shouldStop || newMatchIds.length >= 200) {
-          break;
-        }
+        if (shouldStop || newMatchIds.length >= 200) break;
       }
 
-    } while (!shouldStop && startIndex < 1000); // Max 1000 matches safety limit
+    } while (!shouldStop && startIndex < 1000);
 
   } catch (error) {
     console.warn('Error fetching match IDs:', error);
@@ -88,6 +76,38 @@ async function fetchNewMatchIds(
 
   console.log(`Found ${newMatchIds.length} new matches to fetch`);
   return newMatchIds;
+}
+
+// Fetch and store new matches (returns count of new matches)
+async function fetchAndStoreNewMatches(
+  puuid: string,
+  region: RegionKey,
+  newMatchIds: string[]
+): Promise<number> {
+  if (newMatchIds.length === 0) return 0;
+
+  let storedCount = 0;
+  const batchSize = 5;
+
+  for (let i = 0; i < newMatchIds.length; i += batchSize) {
+    const batchIds = newMatchIds.slice(i, i + batchSize);
+
+    const batchPromises = batchIds.map(async (matchId) => {
+      try {
+        const match = await getMatch(matchId, region);
+        await storePlayerMatch(puuid, match);
+        return true;
+      } catch (error) {
+        console.warn(`Failed to fetch match ${matchId}:`, error);
+        return false;
+      }
+    });
+
+    const results = await Promise.all(batchPromises);
+    storedCount += results.filter(Boolean).length;
+  }
+
+  return storedCount;
 }
 
 interface Params {
@@ -102,6 +122,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { searchParams } = new URL(request.url);
 
     const region = searchParams.get('region') as RegionKey;
+    const refresh = searchParams.get('refresh') === 'true';
 
     // Validate region
     if (!region || !REGIONS[region]) {
@@ -111,75 +132,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Strategy (like LeagueStats):
-    // 1. Get all stored match IDs from DB
-    // 2. Fetch new match IDs from Riot API until we find a known match
-    // 3. Fetch and store only NEW match details
-    // 4. Return combined results
-
-    // Get stored match IDs from DB
-    const storedMatchIds = await getStoredMatchIds(puuid, 10000);
-    const storedMatchIdSet = new Set(storedMatchIds);
-
-    // Consider it "first time" if player has less than 20 games stored
-    // This handles the case where a player appears in another player's match
-    // but hasn't had their own profile fetched yet
-    const FIRST_TIME_THRESHOLD = 20;
-    const isFirstTime = storedMatchIds.length < FIRST_TIME_THRESHOLD;
-
-    // Fetch new match IDs from Riot API (paginated, stops when finding known match)
-    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
-
-    console.log(`[${isFirstTime ? 'FIRST_TIME' : 'UPDATE'}] Found ${newMatchIds.length} new matches, ${storedMatchIds.length} in DB`);
-
-    // Fetch and store only NEW matches
-    const newMatchSummaries: MatchSummary[] = [];
-
-    if (newMatchIds.length > 0) {
-      // Process new matches in batches (small batch size to avoid DB connection limit)
-      const batchSize = 5;
-      for (let i = 0; i < newMatchIds.length; i += batchSize) {
-        const batchIds = newMatchIds.slice(i, i + batchSize);
-
-        const batchPromises = batchIds.map(async (matchId) => {
-          try {
-            const match = await getMatch(matchId, region);
-
-            // Store player match data for ALL participants
-            await storePlayerMatch(puuid, match);
-
-            // Find participant data for the requested player
-            const participant = match.info.participants.find(p => p.puuid === puuid);
-            if (!participant) return null;
-
-            const summary: MatchSummary = {
-              matchId: match.metadata.matchId,
-              queueId: match.info.queueId,
-              gameCreation: match.info.gameCreation,
-              gameDuration: match.info.gameDuration,
-              gameMode: match.info.gameMode,
-              participant,
-              win: participant.win,
-              allParticipants: match.info.participants,
-              teams: match.info.teams,
-            };
-
-            return summary;
-          } catch (error) {
-            console.warn(`Failed to fetch match ${matchId}:`, error);
-            return null;
-          }
-        });
-
-        const batchResults = await Promise.all(batchPromises);
-        newMatchSummaries.push(...batchResults.filter((s): s is MatchSummary => s !== null));
-      }
-    }
-
-    // Get all stored match summaries from DB (including just-added ones)
+    // FAST PATH: Return stored matches from DB immediately
+    // This is much faster than waiting for Riot API checks
     const storedSummaries = await getStoredMatchSummaries(puuid);
 
-    // Convert stored summaries to MatchSummary format
+    // Convert to MatchSummary format
     const allSummaries: MatchSummary[] = storedSummaries.map(s => ({
       matchId: s.matchId,
       queueId: s.queueId,
@@ -195,10 +152,53 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Sort by game creation time (most recent first)
     allSummaries.sort((a, b) => b.gameCreation - a.gameCreation);
 
+    // If refresh requested or no matches in DB, check for new matches
+    let newMatchesCount = 0;
+    const shouldRefresh = refresh || allSummaries.length === 0;
+
+    if (shouldRefresh) {
+      const storedMatchIds = await getStoredMatchIds(puuid, 10000);
+      const storedMatchIdSet = new Set(storedMatchIds);
+
+      const FIRST_TIME_THRESHOLD = 20;
+      const isFirstTime = storedMatchIds.length < FIRST_TIME_THRESHOLD;
+
+      console.log(`[${isFirstTime ? 'FIRST_TIME' : 'UPDATE'}] Checking for new matches, ${storedMatchIds.length} in DB`);
+
+      const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
+
+      if (newMatchIds.length > 0) {
+        newMatchesCount = await fetchAndStoreNewMatches(puuid, region, newMatchIds);
+
+        // Re-fetch summaries to include new matches
+        if (newMatchesCount > 0) {
+          const updatedSummaries = await getStoredMatchSummaries(puuid);
+          const updatedMatches: MatchSummary[] = updatedSummaries.map(s => ({
+            matchId: s.matchId,
+            queueId: s.queueId,
+            gameCreation: s.gameCreation,
+            gameDuration: s.gameDuration,
+            gameMode: s.gameMode,
+            participant: s.participant,
+            win: s.win,
+            allParticipants: s.allParticipants,
+            teams: s.teams,
+          }));
+          updatedMatches.sort((a, b) => b.gameCreation - a.gameCreation);
+
+          return NextResponse.json({
+            matches: updatedMatches,
+            total: updatedMatches.length,
+            newMatches: newMatchesCount,
+          });
+        }
+      }
+    }
+
     return NextResponse.json({
       matches: allSummaries,
       total: allSummaries.length,
-      newMatches: newMatchIds.length,
+      newMatches: newMatchesCount,
     });
   } catch (error) {
     console.error('Matches API error:', error);

@@ -155,11 +155,6 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
   const hasFetched = useRef(false);
   const [benchmarks, setBenchmarks] = useState<Record<string, ChampionBenchmark>>({});
 
-  // Build API URL (fetches ALL matches)
-  const buildApiUrl = useCallback(() => {
-    return `/api/matches/${puuid}?region=${region}`;
-  }, [puuid, region]);
-
   // Filter matches client-side based on active filter
   const filteredMatches = useMemo(() => {
     const filter = QUEUE_FILTERS.find(f => f.id === activeFilter);
@@ -168,48 +163,81 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
     return allMatches.filter(match => queueIds.includes(match.queueId));
   }, [allMatches, activeFilter]);
 
-  // Fetch matches (stale-while-revalidate pattern like LeagueStats)
+  // Fetch matches with background refresh pattern
+  // 1. First call: get DB matches immediately (fast)
+  // 2. Second call: check for new matches in background
   const fetchMatches = useCallback(async (forceRefresh = false) => {
     const { data: cached, isStale } = getCachedMatches(puuid);
 
-    // If we have fresh cache and not forcing refresh, use it
-    if (cached && !isStale && !forceRefresh) {
+    // Show cached data immediately if available
+    if (cached && !forceRefresh) {
       setAllMatches(cached.matches);
       setLastUpdated(new Date(cached.timestamp));
       setIsLoading(false);
+
+      // If cache is stale, refresh in background
+      if (isStale) {
+        // Background refresh - don't show loading state
+        fetch(`/api/matches/${puuid}?region=${region}&refresh=true`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.matches && data.matches.length > 0) {
+              setAllMatches(data.matches);
+              setLastUpdated(new Date());
+              setCachedMatches(puuid, data.matches);
+            }
+          })
+          .catch(console.error);
+      }
       return;
     }
 
-    // If we have stale cache, show it immediately but fetch in background
-    if (cached && isStale && !forceRefresh) {
-      setAllMatches(cached.matches);
-      setLastUpdated(new Date(cached.timestamp));
-      setIsLoading(false);
-      // Continue to fetch in background...
+    // No cache - need to fetch
+    if (forceRefresh) {
+      setIsRefreshing(true);
     } else {
-      setIsLoading(!forceRefresh);
+      setIsLoading(true);
     }
-
-    if (forceRefresh) setIsRefreshing(true);
     setError(null);
 
     try {
-      const res = await fetch(buildApiUrl());
-      if (!res.ok) throw new Error('Failed to fetch matches');
+      // First: get DB matches quickly (no refresh)
+      const fastRes = await fetch(`/api/matches/${puuid}?region=${region}`);
+      if (!fastRes.ok) throw new Error('Failed to fetch matches');
+      const fastData = await fastRes.json();
 
-      const data = await res.json();
-
-      // Only update if we have new matches or more matches than cache
-      const hasNewMatches = data.newMatches > 0;
-      const hasMoreMatches = !cached || data.matches.length > cached.matches.length;
-
-      if (hasNewMatches || hasMoreMatches || forceRefresh || !cached) {
-        setAllMatches(data.matches);
+      // Show DB matches immediately
+      if (fastData.matches && fastData.matches.length > 0) {
+        setAllMatches(fastData.matches);
         setLastUpdated(new Date());
-        setCachedMatches(puuid, data.matches);
+        setCachedMatches(puuid, fastData.matches);
+        setIsLoading(false);
+
+        // Then: check for new matches in background
+        fetch(`/api/matches/${puuid}?region=${region}&refresh=true`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.newMatches > 0 && data.matches) {
+              setAllMatches(data.matches);
+              setLastUpdated(new Date());
+              setCachedMatches(puuid, data.matches);
+            }
+          })
+          .catch(console.error)
+          .finally(() => setIsRefreshing(false));
+      } else {
+        // No matches in DB - do full refresh
+        const refreshRes = await fetch(`/api/matches/${puuid}?region=${region}&refresh=true`);
+        if (!refreshRes.ok) throw new Error('Failed to fetch matches');
+        const refreshData = await refreshRes.json();
+
+        setAllMatches(refreshData.matches || []);
+        setLastUpdated(new Date());
+        if (refreshData.matches?.length > 0) {
+          setCachedMatches(puuid, refreshData.matches);
+        }
       }
     } catch (err) {
-      // Only show error if we don't have cached data
       if (!cached) {
         setError('Failed to load match history');
       }
@@ -218,7 +246,7 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [puuid, buildApiUrl]);
+  }, [puuid, region]);
 
   // Fetch benchmarks for all champions in current matches
   const fetchBenchmarks = useCallback(async (matches: MatchSummary[]) => {
