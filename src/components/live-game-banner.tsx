@@ -36,24 +36,29 @@ export function LiveGameBanner({ puuid, region, inGame, gameData }: LiveGameBann
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [gameTime, setGameTime] = useState(0);
 
+  // Check if game has started (gameStartTime === 0 means still in champ select)
+  const gameStarted = gameData?.gameStartTime && gameData.gameStartTime > 0;
+
   // Update game time every second
   useEffect(() => {
-    if (!inGame || !gameData) return;
+    if (!inGame || !gameData || !gameStarted) return;
 
     const startTime = gameData.gameStartTime;
     const updateTime = () => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      setGameTime(elapsed);
+      setGameTime(Math.max(0, elapsed));
     };
 
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [inGame, gameData]);
+  }, [inGame, gameData, gameStarted]);
 
   if (!inGame || !gameData) return null;
 
-  const formattedTime = `${Math.floor(gameTime / 60)}:${(gameTime % 60).toString().padStart(2, '0')}`;
+  const formattedTime = gameStarted
+    ? `${Math.floor(gameTime / 60)}:${(gameTime % 60).toString().padStart(2, '0')}`
+    : 'Champ Select';
 
   return (
     <>

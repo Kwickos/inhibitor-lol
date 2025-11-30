@@ -18,8 +18,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  ChevronRight
+  ChevronRight,
+  RefreshCw,
+  Flag
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getChampionIconUrl } from '@/lib/riot-api';
 import { getTierColor, getQueueInfo } from '@/lib/constants/queues';
@@ -58,9 +61,19 @@ export function LiveGamePanel({ currentPuuid, region, gameData, isActive = true 
   const [gameTime, setGameTime] = useState(0);
   const [opponentAnalysis, setOpponentAnalysis] = useState<PlayerAnalysis | null>(null);
   const [isLoadingOpponent, setIsLoadingOpponent] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Check if game has started (gameStartTime === 0 means still in champ select)
+  const gameStarted = gameData.gameStartTime > 0;
 
   // Update game time every second
   useEffect(() => {
+    if (!gameStarted) {
+      setGameTime(0);
+      return;
+    }
+
     const updateTime = () => {
       const elapsed = Math.floor((Date.now() - gameData.gameStartTime) / 1000);
       setGameTime(Math.max(0, elapsed));
@@ -69,9 +82,43 @@ export function LiveGamePanel({ currentPuuid, region, gameData, isActive = true 
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [gameData.gameStartTime]);
+  }, [gameData.gameStartTime, gameStarted]);
 
-  const formattedTime = `${Math.floor(gameTime / 60)}:${(gameTime % 60).toString().padStart(2, '0')}`;
+  // Poll to detect game end (every 30 seconds after game started)
+  useEffect(() => {
+    if (!gameStarted || gameEnded || !isActive) return;
+
+    const checkGameStatus = async () => {
+      try {
+        const res = await fetch(`/api/live-game/${region}/${currentPuuid}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.inGame) {
+            setGameEnded(true);
+          }
+        }
+      } catch (err) {
+        // Silently fail - will retry on next poll
+      }
+    };
+
+    // Start polling after 5 minutes of game time (games rarely end before that)
+    const minGameTime = 5 * 60; // 5 minutes
+    if (gameTime < minGameTime) return;
+
+    const pollInterval = setInterval(checkGameStatus, 30000); // Check every 30 seconds
+    return () => clearInterval(pollInterval);
+  }, [gameStarted, gameEnded, isActive, region, currentPuuid, gameTime]);
+
+  // Handle page refresh
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    window.location.reload();
+  };
+
+  const formattedTime = gameStarted
+    ? `${Math.floor(gameTime / 60)}:${(gameTime % 60).toString().padStart(2, '0')}`
+    : 'Champ Select';
 
   const blueTeam = gameData.participants.filter((p) => p.teamId === 100);
   const redTeam = gameData.participants.filter((p) => p.teamId === 200);
@@ -202,30 +249,69 @@ export function LiveGamePanel({ currentPuuid, region, gameData, isActive = true 
       {/* Header with live indicator */}
       <motion.div
         variants={headerVariants}
-        className="relative overflow-hidden rounded-2xl border border-[#f59e0b]/30 bg-gradient-to-br from-[#f59e0b]/10 via-card to-card/80 p-6"
+        className={cn(
+          "relative overflow-hidden rounded-2xl border p-6",
+          gameEnded
+            ? "border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card/80"
+            : "border-[#f59e0b]/30 bg-gradient-to-br from-[#f59e0b]/10 via-card to-card/80"
+        )}
       >
         <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold">Live Game</h2>
-              <Badge variant="outline" className="border-[#f59e0b]/30 text-[#f59e0b]">
+              <h2 className="text-xl font-bold">
+                {gameEnded ? 'Game Ended' : 'Live Game'}
+              </h2>
+              <Badge
+                variant="outline"
+                className={gameEnded
+                  ? "border-primary/30 text-primary"
+                  : "border-[#f59e0b]/30 text-[#f59e0b]"
+                }
+              >
                 {getQueueInfo(gameData.queueId).shortName}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              Currently in match
+              {gameEnded
+                ? 'Match has finished - refresh to see results'
+                : gameStarted
+                  ? 'Currently in match'
+                  : 'In champion select'
+              }
             </p>
           </div>
 
-          {/* Game timer */}
-          <div className="flex items-center gap-3">
-            <Clock className="w-5 h-5 text-[#f59e0b]" />
-            <div>
-              <div className="text-2xl font-bold font-mono tabular-nums">{formattedTime}</div>
-              <div className="text-xs text-muted-foreground">Game Time</div>
+          {/* Game timer or Refresh button */}
+          {gameEnded ? (
+            <Button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+              {isRefreshing ? 'Refreshing...' : 'View Results'}
+            </Button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-[#f59e0b]" />
+              <div>
+                <div className="text-2xl font-bold font-mono tabular-nums">{formattedTime}</div>
+                <div className="text-xs text-muted-foreground">Game Time</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Game ended overlay indicator */}
+        {gameEnded && (
+          <div className="absolute top-3 right-3">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/20 text-primary text-xs font-medium">
+              <Flag className="w-3 h-3" />
+              Finished
             </div>
           </div>
-        </div>
+        )}
       </motion.div>
 
       {/* Lane Matchup Analysis */}

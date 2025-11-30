@@ -16,8 +16,8 @@ interface MatchListProps {
   initialMatches?: MatchSummary[];
 }
 
-// Cache duration: 1 hour in milliseconds
-const CACHE_DURATION = 60 * 60 * 1000;
+// Cache duration: 2 minutes (short to ensure fresh data after games)
+const CACHE_DURATION = 2 * 60 * 1000;
 
 interface CachedMatchData {
   matches: MatchSummary[];
@@ -25,29 +25,33 @@ interface CachedMatchData {
 }
 
 // Get cached data from localStorage (always cache ALL matches, filter client-side)
-function getCachedMatches(puuid: string): CachedMatchData | null {
+// Returns cache data and whether it's stale (should refresh in background)
+function getCachedMatches(puuid: string): { data: CachedMatchData | null; isStale: boolean } {
   try {
     const key = `matches_${puuid}_all`;
     const cached = localStorage.getItem(key);
-    if (!cached) return null;
+    if (!cached) return { data: null, isStale: false };
 
     const data: CachedMatchData = JSON.parse(cached);
 
     // Validate data structure
     if (!data || !Array.isArray(data.matches) || typeof data.timestamp !== 'number') {
       localStorage.removeItem(key); // Clear invalid cache
-      return null;
+      return { data: null, isStale: false };
     }
 
     const age = Date.now() - data.timestamp;
 
-    // Return cache if less than 1 hour old
+    // Return cache if less than 2 minutes old (fresh)
     if (age < CACHE_DURATION) {
-      return data;
+      return { data, isStale: false };
     }
-    return null;
+
+    // Return stale cache (will be refreshed in background)
+    // This allows showing old data immediately while fetching new
+    return { data, isStale: true };
   } catch {
-    return null;
+    return { data: null, isStale: false };
   }
 }
 
@@ -164,20 +168,28 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
     return allMatches.filter(match => queueIds.includes(match.queueId));
   }, [allMatches, activeFilter]);
 
-  // Fetch matches (either from cache or API)
+  // Fetch matches (stale-while-revalidate pattern like LeagueStats)
   const fetchMatches = useCallback(async (forceRefresh = false) => {
-    // Check cache first (unless forcing refresh)
-    if (!forceRefresh) {
-      const cached = getCachedMatches(puuid);
-      if (cached) {
-        setAllMatches(cached.matches);
-        setLastUpdated(new Date(cached.timestamp));
-        setIsLoading(false);
-        return;
-      }
+    const { data: cached, isStale } = getCachedMatches(puuid);
+
+    // If we have fresh cache and not forcing refresh, use it
+    if (cached && !isStale && !forceRefresh) {
+      setAllMatches(cached.matches);
+      setLastUpdated(new Date(cached.timestamp));
+      setIsLoading(false);
+      return;
     }
 
-    setIsLoading(!forceRefresh);
+    // If we have stale cache, show it immediately but fetch in background
+    if (cached && isStale && !forceRefresh) {
+      setAllMatches(cached.matches);
+      setLastUpdated(new Date(cached.timestamp));
+      setIsLoading(false);
+      // Continue to fetch in background...
+    } else {
+      setIsLoading(!forceRefresh);
+    }
+
     if (forceRefresh) setIsRefreshing(true);
     setError(null);
 
@@ -186,13 +198,21 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       if (!res.ok) throw new Error('Failed to fetch matches');
 
       const data = await res.json();
-      setAllMatches(data.matches);
-      setLastUpdated(new Date());
 
-      // Save to cache (all matches)
-      setCachedMatches(puuid, data.matches);
+      // Only update if we have new matches or more matches than cache
+      const hasNewMatches = data.newMatches > 0;
+      const hasMoreMatches = !cached || data.matches.length > cached.matches.length;
+
+      if (hasNewMatches || hasMoreMatches || forceRefresh || !cached) {
+        setAllMatches(data.matches);
+        setLastUpdated(new Date());
+        setCachedMatches(puuid, data.matches);
+      }
     } catch (err) {
-      setError('Failed to load match history');
+      // Only show error if we don't have cached data
+      if (!cached) {
+        setError('Failed to load match history');
+      }
       console.error(err);
     } finally {
       setIsLoading(false);

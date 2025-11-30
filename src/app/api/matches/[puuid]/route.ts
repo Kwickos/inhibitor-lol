@@ -1,31 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMatchIds, getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchSummaries } from '@/lib/cache';
+import { getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchSummaries } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { RiotApiError } from '@/lib/riot-api';
+import { RiotApiError, getMatchIds as fetchMatchIdsFromRiot } from '@/lib/riot-api';
 import type { MatchSummary, Match } from '@/types/riot';
 
-// Fetch new match IDs from Riot API (only those not in DB)
-// Limited to 100 matches max to respect API rate limits (100 req/2min)
+// Queues to exclude (tutorials, practice tool, arena)
+const EXCLUDED_QUEUES = [2000, 2010, 2020]; // Tutorial queues
+
+// Fetch new match IDs from Riot API until we find a known match (like LeagueStats)
+// This ensures we always get the latest games without missing any
 async function fetchNewMatchIds(
   puuid: string,
   region: RegionKey,
-  existingMatchIds: Set<string>
+  existingMatchIds: Set<string>,
+  isFirstTime: boolean = false
 ): Promise<string[]> {
   const newMatchIds: string[] = [];
+  let startIndex = 0;
+  const batchSize = 100; // API max per request
+  let foundKnownMatch = false;
 
   try {
-    // Fetch 100 most recent match IDs (API max per request)
-    const batchIds = await getMatchIds(puuid, region, 100, undefined, 0);
+    do {
+      console.log(`--> Fetching matchIds from Riot API (start: ${startIndex})`);
+      const batchIds = await fetchMatchIdsFromRiot(puuid, region, {
+        count: batchSize,
+        start: startIndex,
+      });
 
-    for (const id of batchIds) {
-      if (!existingMatchIds.has(id)) {
+      // No more matches from API
+      if (!batchIds || batchIds.length === 0) {
+        break;
+      }
+
+      // Check each match ID
+      for (const id of batchIds) {
+        // If we find a match we already have, stop fetching (UPDATE mode)
+        if (existingMatchIds.has(id)) {
+          foundKnownMatch = true;
+          break;
+        }
+
+        // Check if match is from the same region (LeagueStats does this)
+        const matchRegion = id.split('_')[0]?.toLowerCase();
+        if (matchRegion && matchRegion !== region.toLowerCase()) {
+          // Match from different region, stop fetching
+          foundKnownMatch = true;
+          break;
+        }
+
         newMatchIds.push(id);
       }
-    }
+
+      // Move to next page
+      startIndex += batchSize;
+
+      // Safety limit: don't fetch more than 500 matches at once for new accounts
+      // (LeagueStats uses FIRSTIME mode for this, we use a simple limit)
+      if (isFirstTime && startIndex >= 500) {
+        break;
+      }
+
+      // For regular updates, stop after finding known match or fetching 200 new ones
+      if (!isFirstTime && (foundKnownMatch || newMatchIds.length >= 200)) {
+        break;
+      }
+
+    } while (!foundKnownMatch && startIndex < 1000); // Max 1000 matches safety limit
+
   } catch (error) {
     console.warn('Error fetching match IDs:', error);
   }
 
+  console.log(`Found ${newMatchIds.length} new matches to fetch`);
   return newMatchIds;
 }
 
@@ -50,20 +97,21 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Strategy:
-    // 1. Get all stored match summaries from DB (fast, no API calls)
-    // 2. Check for new matches from Riot API
+    // Strategy (like LeagueStats):
+    // 1. Get all stored match IDs from DB
+    // 2. Fetch new match IDs from Riot API until we find a known match
     // 3. Fetch and store only NEW match details
     // 4. Return combined results
 
     // Get stored match IDs from DB
     const storedMatchIds = await getStoredMatchIds(puuid, 10000);
     const storedMatchIdSet = new Set(storedMatchIds);
+    const isFirstTime = storedMatchIds.length === 0;
 
-    // Fetch new match IDs from Riot API (max 100)
-    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet);
+    // Fetch new match IDs from Riot API (paginated, stops when finding known match)
+    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
 
-    console.log(`Found ${newMatchIds.length} new matches, ${storedMatchIds.length} in DB`);
+    console.log(`[${isFirstTime ? 'FIRST_TIME' : 'UPDATE'}] Found ${newMatchIds.length} new matches, ${storedMatchIds.length} in DB`);
 
     // Fetch and store only NEW matches
     const newMatchSummaries: MatchSummary[] = [];
