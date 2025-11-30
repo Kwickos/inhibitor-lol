@@ -144,14 +144,21 @@ function groupMatchesByDay(matches: MatchSummary[]): GroupedMatches[] {
 }
 
 export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps) {
+  // Initialize from cache synchronously to avoid skeleton flash
+  const initialCache = useMemo(() => {
+    if (initialMatches.length > 0) return { matches: initialMatches, timestamp: Date.now() };
+    const { data } = getCachedMatches(puuid);
+    return data;
+  }, [puuid, initialMatches]);
+
   // All matches (unfiltered) - this is our source of truth
-  const [allMatches, setAllMatches] = useState<MatchSummary[]>(initialMatches);
-  const [isLoading, setIsLoading] = useState(initialMatches.length === 0);
+  const [allMatches, setAllMatches] = useState<MatchSummary[]>(initialCache?.matches || []);
+  const [isLoading, setIsLoading] = useState(!initialCache);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<QueueFilterId>('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialCache ? new Date(initialCache.timestamp) : null);
   const hasFetched = useRef(false);
   const [benchmarks, setBenchmarks] = useState<Record<string, ChampionBenchmark>>({});
 
