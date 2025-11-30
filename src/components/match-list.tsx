@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MatchCard, type ChampionBenchmark } from '@/components/match-card';
@@ -369,16 +369,10 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       {/* Match list grouped by day */}
       {!isLoading && !error && filteredMatches.length > 0 && (
         <>
-          <motion.div
-            key={`${activeFilter}-${currentPage}`}
-            className="space-y-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.2 }}
-          >
-            {groupedMatches.map((group, groupIndex) => (
+          <div className="space-y-6">
+            {groupedMatches.map((group) => (
               <div key={group.date}>
-                {/* Day header */}
+                {/* Day header - static, no animation */}
                 <div className="flex items-center gap-3 mb-3">
                   <div className="text-sm font-medium">
                     {group.label}
@@ -391,32 +385,46 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
                   </div>
                 </div>
 
-                {/* Matches for this day */}
+                {/* Matches for this day - only these animate */}
                 <div className="space-y-2">
-                  {group.matches.map((match, matchIndex) => (
-                    <motion.div
-                      key={match.matchId}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: 0.25,
-                        delay: groupIndex * 0.05 + matchIndex * 0.03,
-                        ease: [0.25, 0.46, 0.45, 0.94]
-                      }}
-                    >
-                      <MatchCard
-                        match={match}
-                        currentPuuid={puuid}
-                        region={region}
-                        delay={0}
-                        benchmarks={benchmarks}
-                      />
-                    </motion.div>
-                  ))}
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {group.matches.map((match) => (
+                      <motion.div
+                        key={match.matchId}
+                        layout="position"
+                        initial={{ opacity: 0, x: -20, scale: 0.98 }}
+                        animate={{
+                          opacity: 1,
+                          x: 0,
+                          scale: 1,
+                        }}
+                        exit={{
+                          opacity: 0,
+                          x: 40,
+                          scale: 0.98,
+                        }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 400,
+                          damping: 28,
+                          mass: 0.8,
+                          opacity: { duration: 0.15 }
+                        }}
+                      >
+                        <MatchCard
+                          match={match}
+                          currentPuuid={puuid}
+                          region={region}
+                          delay={0}
+                          benchmarks={benchmarks}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               </div>
             ))}
-          </motion.div>
+          </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
