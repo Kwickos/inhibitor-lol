@@ -1,7 +1,7 @@
 import { redis, CACHE_TTL, cacheKeys } from './redis';
 import { db } from './db';
 import { summoners, matches, ranks, playerMatches, championPositionRates } from '@/db/schema';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, or, isNull } from 'drizzle-orm';
 import type { RegionKey } from './constants/regions';
 import type {
   RiotAccount,
@@ -526,14 +526,18 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
   }
 }
 
-// Get champion stats from stored data (ranked games only)
+// Get champion stats from stored data (ranked games only, with fallback for old data)
 export async function getChampionStats(puuid: string) {
   try {
-    // Filter for ranked games only (Solo/Duo 420, Flex 440)
+    // Filter for ranked games (Solo/Duo 420, Flex 440)
+    // Also include records with null queueId for backward compatibility with old data
     const playerMatchData = await db.query.playerMatches.findMany({
       where: and(
         eq(playerMatches.puuid, puuid),
-        inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED)
+        or(
+          inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED),
+          isNull(playerMatches.queueId)
+        )
       ),
       orderBy: desc(playerMatches.createdAt),
       limit: 100, // Last 100 ranked games
@@ -600,6 +604,7 @@ export async function getChampionStats(puuid: string) {
 export async function aggregateChampionPositionRates(): Promise<void> {
   try {
     // Get all position counts grouped by champion (ranked games only for accurate data)
+    // Include null queueId for backward compatibility with old data
     const results = await db
       .select({
         championId: playerMatches.championId,
@@ -609,7 +614,10 @@ export async function aggregateChampionPositionRates(): Promise<void> {
       .from(playerMatches)
       .where(and(
         sql`${playerMatches.teamPosition} IS NOT NULL AND ${playerMatches.teamPosition} != ''`,
-        inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED)
+        or(
+          inArray(playerMatches.queueId, QUEUE_IDS.ALL_RANKED),
+          isNull(playerMatches.queueId)
+        )
       ))
       .groupBy(playerMatches.championId, playerMatches.teamPosition);
 
