@@ -13,6 +13,9 @@ export interface PlayerAnalysis {
   analyzedGames: number;
   dataQuality: 'excellent' | 'good' | 'limited' | 'insufficient';
 
+  // Current streak (positive = wins, negative = losses)
+  currentStreak: number;
+
   // Overall stats
   overallStats: OverallStats;
 

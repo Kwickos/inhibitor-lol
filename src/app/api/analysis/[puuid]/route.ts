@@ -225,6 +225,10 @@ async function calculateAnalysis(
     dataQuality = 'insufficient';
   }
 
+  // Calculate current streak (matches are sorted most recent first)
+  // Positive = win streak, negative = lose streak
+  const currentStreak = calculateCurrentStreak(playerMatches);
+
   return {
     puuid,
     gameName,
@@ -233,6 +237,7 @@ async function calculateAnalysis(
     queueName,
     analyzedGames: playerMatches.length,
     dataQuality,
+    currentStreak,
     overallStats,
     roleStats,
     championAnalysis,
@@ -242,6 +247,26 @@ async function calculateAnalysis(
     improvements,
     timelineAnalysis,
   };
+}
+
+// Calculate current win/lose streak (positive = wins, negative = losses)
+// Matches should be sorted by most recent first
+function calculateCurrentStreak(playerMatches: PlayerMatch[]): number {
+  if (playerMatches.length === 0) return 0;
+
+  const firstResult = playerMatches[0].participant.win;
+  let streak = 0;
+
+  for (const pm of playerMatches) {
+    if (pm.participant.win === firstResult) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // Return positive for wins, negative for losses
+  return firstResult ? streak : -streak;
 }
 
 function calculateOverallStats(playerMatches: PlayerMatch[]): OverallStats {

@@ -937,8 +937,11 @@ function GamePlanSection({
     tips.push({ text: 'Poor vision. Ask jungler for ganks.', priority: 3 });
   }
 
-  if (trends.kdaTrend === 'declining' && trends.winRateTrend === 'declining') {
-    tips.push({ text: 'On a losing streak. Probably tilted - punish mistakes.', priority: 2 });
+  // Use actual streak data (>= 2 games to count as streak)
+  if (analysis.currentStreak <= -2) {
+    tips.push({ text: `On a ${Math.abs(analysis.currentStreak)}-game losing streak. Probably tilted - punish mistakes.`, priority: 2 });
+  } else if (analysis.currentStreak >= 3) {
+    tips.push({ text: `On a ${analysis.currentStreak}-game win streak. Playing confident - respect their aggression.`, priority: 2 });
   }
 
   if (overallStats.avgDeaths >= 5) {
