@@ -48,8 +48,11 @@ async function fetchNewMatchIds(
         }
 
         // Check if match is from the same region
+        // Match IDs are like "EUW1_123456", region param is like "euw"
+        // So we check if match region STARTS WITH the region param
         const matchRegion = id.split('_')[0]?.toLowerCase();
-        if (matchRegion && matchRegion !== region.toLowerCase()) {
+        const regionLower = region.toLowerCase();
+        if (matchRegion && !matchRegion.startsWith(regionLower) && !regionLower.startsWith(matchRegion)) {
           // Match from different region - in UPDATE mode stop, in FIRST_TIME skip
           if (!isFirstTime) {
             shouldStop = true;
