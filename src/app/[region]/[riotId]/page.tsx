@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useCallback } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { ArrowLeft, AlertCircle, Loader2, History, BarChart3, Radio, PieChart } from 'lucide-react';
@@ -96,6 +96,14 @@ export default function SummonerPage({ params }: PageProps) {
     }
   }, [data?.liveGame]);
 
+  // Handle new matches detected (game ended)
+  const handleNewMatches = useCallback((count: number) => {
+    if (count > 0 && data?.liveGame) {
+      // Game ended - clear live game and switch to overview
+      setData(prev => prev ? { ...prev, liveGame: null } : prev);
+      setActiveTab('overview');
+    }
+  }, [data?.liveGame]);
 
   // Validate region
   const isValidRegion = REGIONS[region as RegionKey] !== undefined;
@@ -350,7 +358,7 @@ export default function SummonerPage({ params }: PageProps) {
                   }
                 }}
               >
-                <MatchList puuid={data.account.puuid} region={region} />
+                <MatchList puuid={data.account.puuid} region={region} onNewMatches={handleNewMatches} />
               </motion.div>
             </motion.div>
           </div>

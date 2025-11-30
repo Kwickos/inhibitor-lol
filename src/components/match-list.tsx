@@ -14,6 +14,7 @@ interface MatchListProps {
   puuid: string;
   region: string;
   initialMatches?: MatchSummary[];
+  onNewMatches?: (count: number) => void;
 }
 
 // Cache duration: 2 minutes (short to ensure fresh data after games)
@@ -143,7 +144,7 @@ function groupMatchesByDay(matches: MatchSummary[]): GroupedMatches[] {
   );
 }
 
-export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps) {
+export function MatchList({ puuid, region, initialMatches = [], onNewMatches }: MatchListProps) {
   // Initialize from cache synchronously to avoid skeleton flash
   const initialCache = useMemo(() => {
     if (initialMatches.length > 0) return { matches: initialMatches, timestamp: Date.now() };
@@ -192,6 +193,10 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
               setAllMatches(data.matches);
               setLastUpdated(new Date());
               setCachedMatches(puuid, data.matches);
+              // Notify parent if new matches were found (game ended)
+              if (data.newMatches > 0 && onNewMatches) {
+                onNewMatches(data.newMatches);
+              }
             }
           })
           .catch(console.error);
@@ -228,6 +233,10 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
               setAllMatches(data.matches);
               setLastUpdated(new Date());
               setCachedMatches(puuid, data.matches);
+              // Notify parent if new matches were found (game ended)
+              if (onNewMatches) {
+                onNewMatches(data.newMatches);
+              }
             }
           })
           .catch(console.error)
@@ -253,7 +262,7 @@ export function MatchList({ puuid, region, initialMatches = [] }: MatchListProps
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [puuid, region]);
+  }, [puuid, region, onNewMatches]);
 
   // Fetch benchmarks for all champions in current matches
   const fetchBenchmarks = useCallback(async (matches: MatchSummary[]) => {
