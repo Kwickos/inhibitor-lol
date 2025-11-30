@@ -7,8 +7,9 @@ import type { MatchSummary, Match } from '@/types/riot';
 // Queues to exclude (tutorials, practice tool, arena)
 const EXCLUDED_QUEUES = [2000, 2010, 2020]; // Tutorial queues
 
-// Fetch new match IDs from Riot API until we find a known match (like LeagueStats)
-// This ensures we always get the latest games without missing any
+// Fetch new match IDs from Riot API
+// - UPDATE mode: stop when we find a known match (incremental update)
+// - FIRST_TIME mode: fetch full history, skip known matches but continue
 async function fetchNewMatchIds(
   puuid: string,
   region: RegionKey,
@@ -18,11 +19,11 @@ async function fetchNewMatchIds(
   const newMatchIds: string[] = [];
   let startIndex = 0;
   const batchSize = 100; // API max per request
-  let foundKnownMatch = false;
+  let shouldStop = false;
 
   try {
     do {
-      console.log(`--> Fetching matchIds from Riot API (start: ${startIndex})`);
+      console.log(`--> Fetching matchIds from Riot API (start: ${startIndex}, mode: ${isFirstTime ? 'FIRST_TIME' : 'UPDATE'})`);
       const batchIds = await fetchMatchIdsFromRiot(puuid, region, {
         count: batchSize,
         start: startIndex,
@@ -35,18 +36,26 @@ async function fetchNewMatchIds(
 
       // Check each match ID
       for (const id of batchIds) {
-        // If we find a match we already have, stop fetching (UPDATE mode)
+        // Skip matches we already have
         if (existingMatchIds.has(id)) {
-          foundKnownMatch = true;
-          break;
+          // In UPDATE mode, stop when we find a known match
+          // In FIRST_TIME mode, just skip it and continue
+          if (!isFirstTime) {
+            shouldStop = true;
+            break;
+          }
+          continue; // Skip this match but keep going in FIRST_TIME mode
         }
 
-        // Check if match is from the same region (LeagueStats does this)
+        // Check if match is from the same region
         const matchRegion = id.split('_')[0]?.toLowerCase();
         if (matchRegion && matchRegion !== region.toLowerCase()) {
-          // Match from different region, stop fetching
-          foundKnownMatch = true;
-          break;
+          // Match from different region - in UPDATE mode stop, in FIRST_TIME skip
+          if (!isFirstTime) {
+            shouldStop = true;
+            break;
+          }
+          continue;
         }
 
         newMatchIds.push(id);
@@ -55,18 +64,20 @@ async function fetchNewMatchIds(
       // Move to next page
       startIndex += batchSize;
 
-      // Safety limit: don't fetch more than 500 matches at once for new accounts
-      // (LeagueStats uses FIRSTIME mode for this, we use a simple limit)
-      if (isFirstTime && startIndex >= 500) {
-        break;
+      // Safety limits
+      if (isFirstTime) {
+        // FIRST_TIME: fetch up to 500 matches
+        if (startIndex >= 500) {
+          break;
+        }
+      } else {
+        // UPDATE: stop after finding known match or fetching 200 new ones
+        if (shouldStop || newMatchIds.length >= 200) {
+          break;
+        }
       }
 
-      // For regular updates, stop after finding known match or fetching 200 new ones
-      if (!isFirstTime && (foundKnownMatch || newMatchIds.length >= 200)) {
-        break;
-      }
-
-    } while (!foundKnownMatch && startIndex < 1000); // Max 1000 matches safety limit
+    } while (!shouldStop && startIndex < 1000); // Max 1000 matches safety limit
 
   } catch (error) {
     console.warn('Error fetching match IDs:', error);
