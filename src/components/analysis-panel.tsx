@@ -42,6 +42,13 @@ interface AnalysisPanelProps {
 
 type QueueType = 'solo' | 'flex';
 
+// Format minutes (e.g., 9.6) to mm:ss format (e.g., "9:36")
+function formatMinutesToTime(minutes: number): string {
+  const mins = Math.floor(minutes);
+  const secs = Math.round((minutes - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export function AnalysisPanel({ puuid, region, gameName, tagLine, isActive = true }: AnalysisPanelProps) {
   const [analysis, setAnalysis] = useState<PlayerAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -954,8 +961,8 @@ function TimelineSection({ timelineAnalysis }: { timelineAnalysis: TimelineAnaly
             },
             {
               label: 'First item timing',
-              value: `${powerSpikeAnalysis.avgFirstItemMinute.toFixed(1)}m`,
-              subtext: powerSpikeAnalysis.firstItemDelta <= 0 ? 'On pace' : `${powerSpikeAnalysis.firstItemDelta.toFixed(1)}m behind`,
+              value: formatMinutesToTime(powerSpikeAnalysis.avgFirstItemMinute),
+              subtext: powerSpikeAnalysis.firstItemDelta <= 0 ? 'On pace' : `${formatMinutesToTime(powerSpikeAnalysis.firstItemDelta)} behind`,
               isGood: powerSpikeAnalysis.firstItemDelta <= 0,
             },
           ]}
@@ -983,8 +990,8 @@ function TimelineSection({ timelineAnalysis }: { timelineAnalysis: TimelineAnaly
             },
             {
               label: 'Second item timing',
-              value: `${powerSpikeAnalysis.avgSecondItemMinute.toFixed(1)}m`,
-              subtext: powerSpikeAnalysis.secondItemDelta <= 0 ? 'On pace' : `${powerSpikeAnalysis.secondItemDelta.toFixed(1)}m behind`,
+              value: formatMinutesToTime(powerSpikeAnalysis.avgSecondItemMinute),
+              subtext: powerSpikeAnalysis.secondItemDelta <= 0 ? 'On pace' : `${formatMinutesToTime(powerSpikeAnalysis.secondItemDelta)} behind`,
               isGood: powerSpikeAnalysis.secondItemDelta <= 1,
             },
           ]}
