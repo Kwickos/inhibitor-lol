@@ -106,7 +106,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Get stored match IDs from DB
     const storedMatchIds = await getStoredMatchIds(puuid, 10000);
     const storedMatchIdSet = new Set(storedMatchIds);
-    const isFirstTime = storedMatchIds.length === 0;
+
+    // Consider it "first time" if player has less than 20 games stored
+    // This handles the case where a player appears in another player's match
+    // but hasn't had their own profile fetched yet
+    const FIRST_TIME_THRESHOLD = 20;
+    const isFirstTime = storedMatchIds.length < FIRST_TIME_THRESHOLD;
 
     // Fetch new match IDs from Riot API (paginated, stops when finding known match)
     const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
