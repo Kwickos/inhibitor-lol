@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMatchTimeline } from '@/lib/riot-api';
-import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import { RiotApiError } from '@/lib/riot-api';
+import { getMatchTimeline, RiotApiError } from '@/lib/riot-api';
+import { type RegionKey } from '@/lib/constants/regions';
+import { 
+  validateParams, 
+  validateQuery, 
+  timelineParamsSchema, 
+  timelineQuerySchema 
+} from '@/lib/validation';
 import type { TimelineFrame, TimelineEvent } from '@/types/riot';
 
 // Processed event for frontend
@@ -26,22 +31,25 @@ interface Params {
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
+  // Validate params
+  const paramsValidation = await validateParams(params, timelineParamsSchema);
+  if (!paramsValidation.success) {
+    return paramsValidation.error;
+  }
+
+  // Validate query
+  const queryValidation = validateQuery(request, timelineQuerySchema);
+  if (!queryValidation.success) {
+    return queryValidation.error;
+  }
+
+  const { matchId } = paramsValidation.data;
+  const { region } = queryValidation.data;
+  const regionKey = region as RegionKey;
+
   try {
-    const { matchId } = await params;
-    const { searchParams } = new URL(request.url);
-
-    const region = searchParams.get('region') as RegionKey;
-
-    // Validate region
-    if (!region || !REGIONS[region]) {
-      return NextResponse.json(
-        { error: 'Invalid or missing region parameter' },
-        { status: 400 }
-      );
-    }
-
     // Fetch timeline from Riot API
-    const timeline = await getMatchTimeline(matchId, region);
+    const timeline = await getMatchTimeline(matchId, regionKey);
 
     // Extract relevant frames data (we mainly need gold/xp per participant per minute)
     const frames: TimelineFrame[] = timeline.info.frames;

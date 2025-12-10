@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAccount, getSummoner, getRanks, getMasteries, getLiveGame } from '@/lib/cache';
-import { REGIONS, type RegionKey } from '@/lib/constants/regions';
+import { type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getLeagueEntriesByPuuid } from '@/lib/riot-api';
 import { getChampionNameById } from '@/lib/champions';
 import { assignTeamRoles, ROLE_ORDER } from '@/lib/constants/champion-roles';
 import { db } from '@/lib/db';
 import { summoners } from '@/db/schema';
-import type { CurrentGameInfo } from '@/types/riot';
+import { validateParams, summonerParamsSchema, parseRiotId } from '@/lib/validation';
 
 interface Params {
   params: Promise<{
@@ -16,39 +16,30 @@ interface Params {
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
+  // Validate parameters
+  const validation = await validateParams(params, summonerParamsSchema);
+  if (!validation.success) {
+    return validation.error;
+  }
+
+  const { region, riotId } = validation.data;
+  const regionKey = region as RegionKey;
+
+  // Parse Riot ID
+  let gameName: string;
+  let tagLine: string;
   try {
-    const { region, riotId } = await params;
+    const parsed = parseRiotId(riotId);
+    gameName = parsed.gameName;
+    tagLine = parsed.tagLine;
+  } catch {
+    return NextResponse.json(
+      { error: 'Invalid Riot ID format. Expected: gameName-tagLine' },
+      { status: 400 }
+    );
+  }
 
-    // Validate region
-    if (!REGIONS[region as RegionKey]) {
-      return NextResponse.json(
-        { error: 'Invalid region' },
-        { status: 400 }
-      );
-    }
-
-    // Parse Riot ID (format: gameName-tagLine)
-    const decodedRiotId = decodeURIComponent(riotId);
-    const lastDashIndex = decodedRiotId.lastIndexOf('-');
-
-    if (lastDashIndex === -1) {
-      return NextResponse.json(
-        { error: 'Invalid Riot ID format. Expected: gameName-tagLine' },
-        { status: 400 }
-      );
-    }
-
-    const gameName = decodedRiotId.substring(0, lastDashIndex);
-    const tagLine = decodedRiotId.substring(lastDashIndex + 1);
-
-    if (!gameName || !tagLine) {
-      return NextResponse.json(
-        { error: 'Invalid Riot ID format' },
-        { status: 400 }
-      );
-    }
-
-    const regionKey = region as RegionKey;
+  try {
 
     // Get account info (PUUID)
     const account = await getAccount(gameName, tagLine, regionKey);
