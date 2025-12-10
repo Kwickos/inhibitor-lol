@@ -7,6 +7,12 @@ import { eq, and } from 'drizzle-orm';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getMatchTimeline } from '@/lib/riot-api';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { 
+  validateParams, 
+  validateQuery, 
+  analysisParamsSchema, 
+  analysisQuerySchema 
+} from '@/lib/validation';
 import type { Match, Participant, Team } from '@/types/riot';
 import { analyzeSingleTimeline, aggregateTimelineStats } from '@/lib/timeline-analysis';
 import {
@@ -27,6 +33,8 @@ import {
   MIN_GAMES_FOR_ANALYSIS,
   RECOMMENDED_GAMES_FOR_ANALYSIS,
 } from '@/types/analysis';
+// Note: Analysis helpers are defined locally in this file
+// They could be imported from '@/lib/services/analysis' after refactoring
 
 // Max duration for this endpoint (serverless)
 export const maxDuration = 30;
@@ -44,21 +52,23 @@ export async function GET(request: NextRequest, { params }: Params) {
   const rateLimitResponse = await checkRateLimit(request, 'strict');
   if (rateLimitResponse) return rateLimitResponse;
 
+  // Validate params
+  const paramsValidation = await validateParams(params, analysisParamsSchema);
+  if (!paramsValidation.success) {
+    return paramsValidation.error;
+  }
+
+  // Validate query
+  const queryValidation = validateQuery(request, analysisQuerySchema);
+  if (!queryValidation.success) {
+    return queryValidation.error;
+  }
+
+  const { puuid } = paramsValidation.data;
+  const { region, gameName = '', tagLine = '', queue: queueParam } = queryValidation.data;
+  const regionKey = region as RegionKey;
+
   try {
-    const { puuid } = await params;
-    const { searchParams } = new URL(request.url);
-
-    const region = searchParams.get('region') as RegionKey;
-    const gameName = searchParams.get('gameName') || '';
-    const tagLine = searchParams.get('tagLine') || '';
-    const queueParam = searchParams.get('queue') || 'solo'; // 'solo', 'flex', or 'all'
-
-    if (!region || !REGIONS[region]) {
-      return NextResponse.json(
-        { error: 'Invalid or missing region parameter' },
-        { status: 400 }
-      );
-    }
 
     // Check cache first
     const analysisCacheKey = cacheKeys.analysis(puuid, queueParam);
@@ -91,7 +101,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     // Fetch match IDs - get ranked games only for better analysis
-    const matchIds = await getMatchIds(puuid, region, GAMES_TO_ANALYZE, queueId);
+    const matchIds = await getMatchIds(puuid, regionKey, GAMES_TO_ANALYZE, queueId);
 
     if (matchIds.length === 0) {
       return NextResponse.json(
@@ -103,7 +113,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Fetch all match details in parallel
     const matchPromises = matchIds.map(async (matchId) => {
       try {
-        return await getMatch(matchId, region);
+        return await getMatch(matchId, regionKey);
       } catch {
         return null;
       }
@@ -146,7 +156,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       puuid,
       gameName,
       tagLine,
-      region,
+      regionKey,
       playerMatches,
       queueName
     );
