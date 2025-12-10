@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStoredMatchSummaries } from '@/lib/cache';
-import { REGIONS, type RegionKey } from '@/lib/constants/regions';
+import { 
+  validateParams, 
+  validateQuery, 
+  matchesParamsSchema, 
+  matchesQuerySchema 
+} from '@/lib/validation';
 import type { MatchSummary } from '@/types/riot';
 
 // FAST PATH ONLY: Return stored matches from DB immediately
@@ -13,19 +18,21 @@ interface Params {
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
+  // Validate params
+  const paramsValidation = await validateParams(params, matchesParamsSchema);
+  if (!paramsValidation.success) {
+    return paramsValidation.error;
+  }
+
+  // Validate query
+  const queryValidation = validateQuery(request, matchesQuerySchema);
+  if (!queryValidation.success) {
+    return queryValidation.error;
+  }
+
+  const { puuid } = paramsValidation.data;
+
   try {
-    const { puuid } = await params;
-    const { searchParams } = new URL(request.url);
-
-    const region = searchParams.get('region') as RegionKey;
-
-    // Validate region
-    if (!region || !REGIONS[region]) {
-      return NextResponse.json(
-        { error: 'Invalid or missing region parameter' },
-        { status: 400 }
-      );
-    }
 
     // FAST PATH: Return stored matches from DB immediately
     // This should be very fast (<100ms)

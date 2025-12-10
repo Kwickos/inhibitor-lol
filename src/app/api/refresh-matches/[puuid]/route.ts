@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchSummaries } from '@/lib/cache';
-import { REGIONS, type RegionKey } from '@/lib/constants/regions';
+import { type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getMatchIds as fetchMatchIdsFromRiot } from '@/lib/riot-api';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { 
+  validateParams, 
+  validateQuery, 
+  refreshMatchesParamsSchema, 
+  refreshMatchesQuerySchema 
+} from '@/lib/validation';
 import type { MatchSummary } from '@/types/riot';
 
 // Fetch new matches from Riot API and store them
@@ -132,19 +138,23 @@ export async function GET(request: NextRequest, { params }: Params) {
   const rateLimitResponse = await checkRateLimit(request, 'strict');
   if (rateLimitResponse) return rateLimitResponse;
 
+  // Validate params
+  const paramsValidation = await validateParams(params, refreshMatchesParamsSchema);
+  if (!paramsValidation.success) {
+    return paramsValidation.error;
+  }
+
+  // Validate query
+  const queryValidation = validateQuery(request, refreshMatchesQuerySchema);
+  if (!queryValidation.success) {
+    return queryValidation.error;
+  }
+
+  const { puuid } = paramsValidation.data;
+  const { region } = queryValidation.data;
+  const regionKey = region as RegionKey;
+
   try {
-    const { puuid } = await params;
-    const { searchParams } = new URL(request.url);
-
-    const region = searchParams.get('region') as RegionKey;
-
-    // Validate region
-    if (!region || !REGIONS[region]) {
-      return NextResponse.json(
-        { error: 'Invalid or missing region parameter' },
-        { status: 400 }
-      );
-    }
 
     // Get existing match IDs from DB
     const storedMatchIds = await getStoredMatchIds(puuid, 10000);
@@ -157,7 +167,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     console.log(`[REFRESH ${isFirstTime ? 'FIRST_TIME' : 'UPDATE'}] Player has ${storedMatchIds.length} matches in DB`);
 
     // Fetch new match IDs from Riot API
-    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
+    const newMatchIds = await fetchNewMatchIds(puuid, regionKey, storedMatchIdSet, isFirstTime);
 
     if (newMatchIds.length === 0) {
       return NextResponse.json({
@@ -167,7 +177,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     // Fetch and store new matches
-    const storedCount = await fetchAndStoreNewMatches(puuid, region, newMatchIds);
+    const storedCount = await fetchAndStoreNewMatches(puuid, regionKey, newMatchIds);
 
     // Return updated match list
     if (storedCount > 0) {
