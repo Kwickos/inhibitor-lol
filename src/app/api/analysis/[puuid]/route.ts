@@ -6,6 +6,7 @@ import { championBenchmarks } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getMatchTimeline } from '@/lib/riot-api';
+import { checkRateLimit } from '@/lib/rate-limit';
 import type { Match, Participant, Team } from '@/types/riot';
 import { analyzeSingleTimeline, aggregateTimelineStats } from '@/lib/timeline-analysis';
 import {
@@ -27,6 +28,9 @@ import {
   RECOMMENDED_GAMES_FOR_ANALYSIS,
 } from '@/types/analysis';
 
+// Max duration for this endpoint (serverless)
+export const maxDuration = 30;
+
 interface Params {
   params: Promise<{
     puuid: string;
@@ -36,6 +40,10 @@ interface Params {
 const GAMES_TO_ANALYZE = 50; // Analyze last 50 games for comprehensive analysis
 
 export async function GET(request: NextRequest, { params }: Params) {
+  // Apply strict rate limiting (10 req/min) - this is an expensive operation
+  const rateLimitResponse = await checkRateLimit(request, 'strict');
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const { puuid } = await params;
     const { searchParams } = new URL(request.url);
