@@ -23,45 +23,103 @@ Application de suivi de statistiques pour League of Legends construite avec Next
 - **Styling**: Tailwind CSS
 - **Composants UI**: shadcn/ui
 - **Animations**: Framer Motion
-- **Base de données**: PostgreSQL avec Drizzle ORM
-- **Cache**: Redis
+- **Base de données**: Turso (SQLite distribué)
+- **Cache**: Upstash Redis
 - **API**: Riot Games API
+- **Déploiement**: Vercel
 
-## Installation
+## Déploiement sur Vercel
 
-### Prérequis
+### 1. Prérequis
 
-- Node.js 18+
-- Base de données PostgreSQL
-- Instance Redis
-- Clé API Riot Games
+Créez des comptes sur :
+- [Vercel](https://vercel.com) (hébergement)
+- [Turso](https://turso.tech) (base de données)
+- [Upstash](https://upstash.com) (Redis cache)
+- [Riot Developer Portal](https://developer.riotgames.com) (API key)
 
-### Variables d'environnement
+### 2. Configuration Turso
 
-Créez un fichier `.env` avec les variables suivantes :
+```bash
+# Installer Turso CLI
+brew install tursodatabase/tap/turso
 
-```env
-RIOT_API_KEY=votre_clé_api_riot
-DATABASE_URL=votre_connection_string_postgresql
-REDIS_URL=votre_connection_string_redis
+# Se connecter
+turso auth login
+
+# Créer une database
+turso db create inhibitor-lol
+
+# Obtenir l'URL et le token
+turso db show inhibitor-lol --url
+turso db tokens create inhibitor-lol
 ```
 
-### Lancement
+### 3. Configuration Upstash
+
+1. Créez un Redis database sur [Upstash Console](https://console.upstash.com)
+2. Copiez `UPSTASH_REDIS_REST_URL` et `UPSTASH_REDIS_REST_TOKEN`
+
+### 4. Déploiement Vercel
+
+```bash
+# Installer Vercel CLI
+npm i -g vercel
+
+# Déployer
+vercel
+```
+
+Configurez les variables d'environnement dans Vercel Dashboard :
+
+| Variable | Description |
+|----------|-------------|
+| `RIOT_API_KEY` | Clé API Riot Games |
+| `TURSO_DATABASE_URL` | URL de la database Turso |
+| `TURSO_AUTH_TOKEN` | Token d'authentification Turso |
+| `UPSTASH_REDIS_REST_URL` | URL REST Redis Upstash |
+| `UPSTASH_REDIS_REST_TOKEN` | Token Redis Upstash |
+| `ENABLE_RATE_LIMIT` | `true` pour activer le rate limiting |
+
+### 5. Initialiser la base de données
+
+```bash
+# Pousser le schéma vers Turso
+npx drizzle-kit push
+```
+
+## Développement local
 
 ```bash
 # Installer les dépendances
 npm install
 
-# Appliquer le schéma de base de données
+# Copier les variables d'environnement
+cp .env.example .env
+
+# Configurer .env avec vos clés
+
+# Initialiser la DB locale
 npx drizzle-kit push
 
 # Lancer le serveur de développement
 npm run dev
 ```
 
-Ouvrez [http://localhost:3000](http://localhost:3000) pour voir l'application.
+Ouvrez [http://localhost:3000](http://localhost:3000).
 
-## Structure du projet
+## API Endpoints
+
+| Endpoint | Description | Rate Limit |
+|----------|-------------|------------|
+| `GET /api/health` | Health check | - |
+| `GET /api/summoner/[region]/[riotId]` | Profil joueur | 60/min |
+| `GET /api/matches/[puuid]` | Historique (cache) | 60/min |
+| `GET /api/refresh-matches/[puuid]` | Refresh depuis Riot | 10/min |
+| `GET /api/analysis/[puuid]` | Analyse détaillée | 10/min |
+| `GET /api/live-game/[region]/[summonerId]` | Partie en cours | 60/min |
+
+## Architecture
 
 ```
 src/
@@ -74,11 +132,22 @@ src/
 │   └── ...                     # Composants fonctionnels
 ├── lib/
 │   ├── riot-api.ts            # Client API Riot
-│   ├── cache.ts               # Utilitaires de cache
+│   ├── cache.ts               # Cache multi-niveau
+│   ├── redis.ts               # Client Upstash Redis
+│   ├── db.ts                  # Client Turso/Drizzle
+│   ├── rate-limit.ts          # Rate limiting Upstash
 │   └── constants/             # Config régions, queues
 ├── types/                      # Types TypeScript
 └── db/                         # Schéma base de données
 ```
+
+## Coûts estimés
+
+| Trafic | Vercel | Turso | Upstash | Total |
+|--------|--------|-------|---------|-------|
+| Faible (<1K/mois) | $0 | $0 | $0 | **$0** |
+| Moyen (1-10K/mois) | $0 | $0 | $0 | **$0** |
+| Élevé (10K+/mois) | $20 | $5 | $4 | **~$29** |
 
 ## Licence
 

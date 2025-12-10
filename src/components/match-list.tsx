@@ -171,62 +171,49 @@ export function MatchList({ puuid, region, initialMatches = [], onNewMatches }: 
     return allMatches.filter(match => queueIds.includes(match.queueId));
   }, [allMatches, activeFilter]);
 
-  // Fetch matches with background refresh pattern
-  // 1. First call: get DB matches immediately (fast)
-  // 2. Second call: check for new matches in background
+  // Fetch matches with lazy loading pattern
+  // 1. First: Show localStorage cache instantly (if available)
+  // 2. Then: Fetch DB cache (fast, <100ms)
+  // 3. Finally: Refresh from Riot API in background (slow, 2-10s)
   const fetchMatches = useCallback(async (forceRefresh = false) => {
     const { data: cached, isStale } = getCachedMatches(puuid);
 
-    // Show cached data immediately if available
+    // STEP 1: Show localStorage cache immediately if available
     if (cached && !forceRefresh) {
       setAllMatches(cached.matches);
       setLastUpdated(new Date(cached.timestamp));
       setIsLoading(false);
-
-      // If cache is stale, refresh in background
-      if (isStale) {
-        // Background refresh - don't show loading state
-        fetch(`/api/matches/${puuid}?region=${region}&refresh=true`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.matches && data.matches.length > 0) {
-              setAllMatches(data.matches);
-              setLastUpdated(new Date());
-              setCachedMatches(puuid, data.matches);
-              // Notify parent if new matches were found (game ended)
-              if (data.newMatches > 0 && onNewMatches) {
-                onNewMatches(data.newMatches);
-              }
-            }
-          })
-          .catch(console.error);
-      }
-      return;
     }
 
-    // No cache - need to fetch
-    if (forceRefresh) {
-      setIsRefreshing(true);
+    // STEP 2: Fetch from DB (fast endpoint)
+    if (!forceRefresh) {
+      setIsLoading(!cached); // Only show loading if no cache
     } else {
-      setIsLoading(true);
+      setIsRefreshing(true);
     }
     setError(null);
 
     try {
-      // First: get DB matches quickly (no refresh)
-      const fastRes = await fetch(`/api/matches/${puuid}?region=${region}`);
-      if (!fastRes.ok) throw new Error('Failed to fetch matches');
-      const fastData = await fastRes.json();
+      // Fast DB fetch - should be <100ms
+      const dbRes = await fetch(`/api/matches/${puuid}?region=${region}`);
+      if (!dbRes.ok) throw new Error('Failed to fetch matches');
+      const dbData = await dbRes.json();
 
-      // Show DB matches immediately
-      if (fastData.matches && fastData.matches.length > 0) {
-        setAllMatches(fastData.matches);
+      // Show DB matches
+      if (dbData.matches && dbData.matches.length > 0) {
+        setAllMatches(dbData.matches);
         setLastUpdated(new Date());
-        setCachedMatches(puuid, fastData.matches);
+        setCachedMatches(puuid, dbData.matches);
         setIsLoading(false);
+      }
 
-        // Then: check for new matches in background
-        fetch(`/api/matches/${puuid}?region=${region}&refresh=true`)
+      // STEP 3: Refresh from Riot API in background
+      // Always do this if: forceRefresh, stale cache, or no matches
+      const shouldRefresh = forceRefresh || isStale || !dbData.hasMatches;
+      
+      if (shouldRefresh) {
+        // Background refresh - don't block UI
+        fetch(`/api/refresh-matches/${puuid}?region=${region}`)
           .then(res => res.json())
           .then(data => {
             if (data.newMatches > 0 && data.matches) {
@@ -239,26 +226,33 @@ export function MatchList({ puuid, region, initialMatches = [], onNewMatches }: 
               }
             }
           })
-          .catch(console.error)
+          .catch(err => {
+            console.error('Background refresh failed:', err);
+          })
           .finally(() => setIsRefreshing(false));
       } else {
-        // No matches in DB - do full refresh
-        const refreshRes = await fetch(`/api/matches/${puuid}?region=${region}&refresh=true`);
-        if (!refreshRes.ok) throw new Error('Failed to fetch matches');
-        const refreshData = await refreshRes.json();
+        setIsRefreshing(false);
+      }
 
+      // If no matches at all, wait for refresh
+      if (!dbData.hasMatches && !cached) {
+        setIsLoading(true);
+        const refreshRes = await fetch(`/api/refresh-matches/${puuid}?region=${region}`);
+        const refreshData = await refreshRes.json();
+        
         setAllMatches(refreshData.matches || []);
         setLastUpdated(new Date());
         if (refreshData.matches?.length > 0) {
           setCachedMatches(puuid, refreshData.matches);
         }
+        setIsLoading(false);
+        setIsRefreshing(false);
       }
     } catch (err) {
       if (!cached) {
         setError('Failed to load match history');
       }
       console.error(err);
-    } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }

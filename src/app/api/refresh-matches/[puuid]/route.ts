@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { matches, playerMatches } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { getMatch, storePlayerMatch, getStoredMatchIds, getStoredMatchSummaries } from '@/lib/cache';
 import { REGIONS, type RegionKey } from '@/lib/constants/regions';
-import * as riotApi from '@/lib/riot-api';
-import type { Match } from '@/types/riot';
+import { RiotApiError, getMatchIds as fetchMatchIdsFromRiot } from '@/lib/riot-api';
+import { checkRateLimit } from '@/lib/rate-limit';
+import type { MatchSummary } from '@/types/riot';
 
-// Re-fetch matches from Riot API to get full data (challenges, pings, etc.)
-// This updates existing matches with new fields
+// Fetch new matches from Riot API and store them
+// This is the "slow" endpoint that does the actual API calls
+// The frontend should call this in the background after showing cached data
+
+// Max duration for this endpoint (serverless)
+export const maxDuration = 60;
 
 interface Params {
   params: Promise<{
@@ -15,14 +18,127 @@ interface Params {
   }>;
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+// Fetch new match IDs from Riot API
+// - UPDATE mode: stop when we find a known match (incremental update)
+// - FIRST_TIME mode: fetch more history, skip known matches but continue
+async function fetchNewMatchIds(
+  puuid: string,
+  region: RegionKey,
+  existingMatchIds: Set<string>,
+  isFirstTime: boolean = false
+): Promise<string[]> {
+  const newMatchIds: string[] = [];
+  let startIndex = 0;
+  const batchSize = 100; // API max per request
+  let shouldStop = false;
+
+  try {
+    do {
+      console.log(`--> Fetching matchIds from Riot API (start: ${startIndex}, mode: ${isFirstTime ? 'FIRST_TIME' : 'UPDATE'})`);
+      const batchIds = await fetchMatchIdsFromRiot(puuid, region, {
+        count: batchSize,
+        start: startIndex,
+      });
+
+      // No more matches from API
+      if (!batchIds || batchIds.length === 0) {
+        break;
+      }
+
+      // Check each match ID
+      for (const id of batchIds) {
+        // Skip matches we already have
+        if (existingMatchIds.has(id)) {
+          // In UPDATE mode, stop when we find a known match
+          // In FIRST_TIME mode, just skip it and continue
+          if (!isFirstTime) {
+            shouldStop = true;
+            break;
+          }
+          continue; // Skip this match but keep going in FIRST_TIME mode
+        }
+
+        // Check if match is from the same region
+        const matchRegion = id.split('_')[0]?.toLowerCase();
+        const regionLower = region.toLowerCase();
+        if (matchRegion && !matchRegion.startsWith(regionLower) && !regionLower.startsWith(matchRegion)) {
+          if (!isFirstTime) {
+            shouldStop = true;
+            break;
+          }
+          continue;
+        }
+
+        newMatchIds.push(id);
+      }
+
+      // Move to next page
+      startIndex += batchSize;
+
+      // Safety limits - more conservative for faster response
+      if (isFirstTime) {
+        // First time: fetch up to 100 matches initially (will get more on subsequent refreshes)
+        if (startIndex >= 200 || newMatchIds.length >= 100) break;
+      } else {
+        // Update mode: stop as soon as we find known matches or have 50 new ones
+        if (shouldStop || newMatchIds.length >= 50) break;
+      }
+
+    } while (!shouldStop && startIndex < 500);
+
+  } catch (error) {
+    console.warn('Error fetching match IDs:', error);
+  }
+
+  console.log(`Found ${newMatchIds.length} new matches to fetch`);
+  return newMatchIds;
+}
+
+// Fetch and store new matches (returns count of new matches)
+async function fetchAndStoreNewMatches(
+  puuid: string,
+  region: RegionKey,
+  newMatchIds: string[]
+): Promise<number> {
+  if (newMatchIds.length === 0) return 0;
+
+  let storedCount = 0;
+  // Increase batch size for faster processing
+  const batchSize = 10;
+
+  for (let i = 0; i < newMatchIds.length; i += batchSize) {
+    const batchIds = newMatchIds.slice(i, i + batchSize);
+
+    const batchPromises = batchIds.map(async (matchId) => {
+      try {
+        const match = await getMatch(matchId, region);
+        await storePlayerMatch(puuid, match);
+        return true;
+      } catch (error) {
+        console.warn(`Failed to fetch match ${matchId}:`, error);
+        return false;
+      }
+    });
+
+    const results = await Promise.all(batchPromises);
+    storedCount += results.filter(Boolean).length;
+  }
+
+  return storedCount;
+}
+
+export async function GET(request: NextRequest, { params }: Params) {
+  // Apply strict rate limiting (10 req/min) - this is an expensive operation
+  const rateLimitResponse = await checkRateLimit(request, 'strict');
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const { puuid } = await params;
     const { searchParams } = new URL(request.url);
-    const region = searchParams.get('region') as RegionKey;
-    const limitParam = searchParams.get('limit');
-    const limit = limitParam ? parseInt(limitParam, 10) : 50;
 
+    const region = searchParams.get('region') as RegionKey;
+
+    // Validate region
     if (!region || !REGIONS[region]) {
       return NextResponse.json(
         { error: 'Invalid or missing region parameter' },
@@ -30,153 +146,71 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Get all match IDs for this player from DB
-    const playerMatchData = await db
-      .select({ matchId: playerMatches.matchId })
-      .from(playerMatches)
-      .where(eq(playerMatches.puuid, puuid))
-      .limit(limit);
+    // Get existing match IDs from DB
+    const storedMatchIds = await getStoredMatchIds(puuid, 10000);
+    const storedMatchIdSet = new Set(storedMatchIds);
 
-    const matchIds = playerMatchData.map(pm => pm.matchId);
+    // Determine if this is first time (less than 20 matches) or update
+    const FIRST_TIME_THRESHOLD = 20;
+    const isFirstTime = storedMatchIds.length < FIRST_TIME_THRESHOLD;
 
-    if (matchIds.length === 0) {
+    console.log(`[REFRESH ${isFirstTime ? 'FIRST_TIME' : 'UPDATE'}] Player has ${storedMatchIds.length} matches in DB`);
+
+    // Fetch new match IDs from Riot API
+    const newMatchIds = await fetchNewMatchIds(puuid, region, storedMatchIdSet, isFirstTime);
+
+    if (newMatchIds.length === 0) {
       return NextResponse.json({
-        message: 'No matches found for this player',
-        updated: 0,
+        newMatches: 0,
+        message: 'No new matches found',
       });
     }
 
-    console.log(`Refreshing ${matchIds.length} matches for ${puuid}`);
+    // Fetch and store new matches
+    const storedCount = await fetchAndStoreNewMatches(puuid, region, newMatchIds);
 
-    let updated = 0;
-    let errors = 0;
+    // Return updated match list
+    if (storedCount > 0) {
+      const updatedSummaries = await getStoredMatchSummaries(puuid);
+      const matches: MatchSummary[] = updatedSummaries.map(s => ({
+        matchId: s.matchId,
+        queueId: s.queueId,
+        gameCreation: s.gameCreation,
+        gameDuration: s.gameDuration,
+        gameMode: s.gameMode,
+        participant: s.participant,
+        win: s.win,
+        allParticipants: s.allParticipants,
+        teams: s.teams,
+      }));
+      matches.sort((a, b) => b.gameCreation - a.gameCreation);
 
-    // Process in batches to respect rate limits
-    const batchSize = 10;
-    for (let i = 0; i < matchIds.length; i += batchSize) {
-      const batch = matchIds.slice(i, i + batchSize);
-
-      const batchPromises = batch.map(async (matchId) => {
-        try {
-          // Fetch fresh data from Riot API
-          const match = await riotApi.getMatch(matchId, region);
-
-          // Update match in DB with all new fields
-          await db
-            .update(matches)
-            .set({
-              gameVersion: match.info.gameVersion,
-              mapId: match.info.mapId,
-              platformId: match.info.platformId,
-              gameType: match.info.gameType,
-              endOfGameResult: match.info.endOfGameResult,
-              participants: match.info.participants,
-              teams: match.info.teams,
-              updatedAt: new Date(),
-            })
-            .where(eq(matches.matchId, matchId));
-
-          // Update playerMatches for all participants with new stats
-          await updatePlayerMatchesWithFullStats(match);
-
-          return true;
-        } catch (error) {
-          console.warn(`Failed to refresh match ${matchId}:`, error);
-          return false;
-        }
+      return NextResponse.json({
+        matches,
+        total: matches.length,
+        newMatches: storedCount,
       });
-
-      const results = await Promise.all(batchPromises);
-      updated += results.filter(Boolean).length;
-      errors += results.filter(r => !r).length;
-
-      // Small delay between batches to avoid rate limiting
-      if (i + batchSize < matchIds.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
     }
 
     return NextResponse.json({
-      message: `Refreshed ${updated} matches`,
-      updated,
-      errors,
-      total: matchIds.length,
+      newMatches: 0,
+      message: 'Failed to store new matches',
     });
   } catch (error) {
     console.error('Refresh matches API error:', error);
+
+    if (error instanceof RiotApiError) {
+      if (error.status === 429) {
+        return NextResponse.json(
+          { error: 'Rate limited. Please try again later.', newMatches: 0 },
+          { status: 429 }
+        );
+      }
+    }
+
     return NextResponse.json(
-      { error: 'Failed to refresh matches' },
+      { error: 'Failed to refresh matches', newMatches: 0 },
       { status: 500 }
     );
-  }
-}
-
-// Update playerMatches with all the new extended stats
-async function updatePlayerMatchesWithFullStats(match: Match): Promise<void> {
-  for (const participant of match.info.participants) {
-    const challenges = participant.challenges;
-    const primaryStyle = participant.perks?.styles?.find(s => s.description === 'primaryStyle');
-    const secondaryStyle = participant.perks?.styles?.find(s => s.description === 'subStyle');
-
-    try {
-      await db
-        .update(playerMatches)
-        .set({
-          // Extended stats
-          goldEarned: participant.goldEarned,
-          totalDamageDealtToChampions: participant.totalDamageDealtToChampions,
-          totalDamageTaken: participant.totalDamageTaken,
-          totalHeal: participant.totalHeal,
-          totalDamageShieldedOnTeammates: participant.totalDamageShieldedOnTeammates,
-          wardsPlaced: participant.wardsPlaced,
-          wardsKilled: participant.wardsKilled,
-          controlWardsPlaced: participant.detectorWardsPlaced ?? participant.visionWardsBoughtInGame,
-          doubleKills: participant.doubleKills,
-          tripleKills: participant.tripleKills,
-          quadraKills: participant.quadraKills,
-          pentaKills: participant.pentaKills,
-          firstBloodKill: participant.firstBloodKill,
-          turretKills: participant.turretKills,
-          objectivesStolen: participant.objectivesStolen,
-          // Challenges stats
-          damagePerMinute: challenges?.damagePerMinute ? Math.round(challenges.damagePerMinute) : null,
-          goldPerMinute: challenges?.goldPerMinute ? Math.round(challenges.goldPerMinute) : null,
-          kda: challenges?.kda ? Math.round(challenges.kda * 100) : null,
-          killParticipation: challenges?.killParticipation ? Math.round(challenges.killParticipation * 100) : null,
-          teamDamagePercentage: challenges?.teamDamagePercentage ? Math.round(challenges.teamDamagePercentage * 100) : null,
-          visionScorePerMinute: challenges?.visionScorePerMinute ? Math.round(challenges.visionScorePerMinute * 100) : null,
-          soloKills: challenges?.soloKills ?? null,
-          skillshotsDodged: challenges?.skillshotsDodged ?? null,
-          skillshotsHit: challenges?.skillshotsHit ?? null,
-          // Time data
-          timePlayed: participant.timePlayed,
-          totalTimeSpentDead: participant.totalTimeSpentDead,
-          // Items
-          item0: participant.item0,
-          item1: participant.item1,
-          item2: participant.item2,
-          item3: participant.item3,
-          item4: participant.item4,
-          item5: participant.item5,
-          item6: participant.item6,
-          // Summoner spells
-          summoner1Id: participant.summoner1Id,
-          summoner2Id: participant.summoner2Id,
-          // Runes
-          primaryRune: primaryStyle?.selections?.[0]?.perk ?? null,
-          secondaryRune: secondaryStyle?.style ?? null,
-          // Game metadata
-          queueId: match.info.queueId,
-          gameVersion: match.info.gameVersion,
-        })
-        .where(
-          and(
-            eq(playerMatches.puuid, participant.puuid),
-            eq(playerMatches.matchId, match.metadata.matchId)
-          )
-        );
-    } catch (e) {
-      // Ignore errors for individual participants
-    }
   }
 }
