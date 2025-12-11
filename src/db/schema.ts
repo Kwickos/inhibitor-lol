@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 
 // Summoners table - Cache des profils
 export const summoners = sqliteTable('summoners', {
@@ -40,6 +40,9 @@ export const playerMatches = sqliteTable(
     win: integer('win', { mode: 'boolean' }).notNull(),
     championId: integer('champion_id').notNull(),
     championName: text('champion_name').notNull(),
+    champLevel: integer('champ_level'),
+    teamId: integer('team_id'),
+    gameEndedInEarlySurrender: integer('game_ended_in_early_surrender', { mode: 'boolean' }),
     kills: integer('kills').notNull(),
     deaths: integer('deaths').notNull(),
     assists: integer('assists').notNull(),
@@ -92,10 +95,22 @@ export const playerMatches = sqliteTable(
     // Game metadata (denormalized for filtering)
     queueId: integer('queue_id'),
     gameVersion: text('game_version'),
+    // Pre-calculated game score (0-100) and grade (S+, S, A, B, C, D)
+    gameScore: integer('game_score'),
+    gameGrade: text('game_grade'),
+    // Sub-scores (0-100)
+    combatScore: integer('combat_score'),
+    farmingScore: integer('farming_score'),
+    visionScore2: integer('vision_score_2'), // vision_score already exists for raw vision
+    objectivesScore: integer('objectives_score'),
+    // Insights and improvements (JSON arrays)
+    insights: text('insights', { mode: 'json' }).$type<string[]>(),
+    improvements: text('improvements', { mode: 'json' }).$type<string[]>(),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.puuid, table.matchId] }),
+    puuidIdx: index('idx_player_matches_puuid').on(table.puuid),
   })
 );
 

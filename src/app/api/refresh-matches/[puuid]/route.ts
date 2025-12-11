@@ -190,6 +190,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         gameMode: s.gameMode,
         participant: s.participant,
         win: s.win,
+        isRemake: s.isRemake,
         allParticipants: s.allParticipants,
         teams: s.teams,
       }));

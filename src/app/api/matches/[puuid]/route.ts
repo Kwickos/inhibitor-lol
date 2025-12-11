@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // This should be very fast (<100ms)
     const storedSummaries = await getStoredMatchSummaries(puuid);
 
-    // Convert to MatchSummary format
+    // Convert to MatchSummary format (including full pre-calculated game score)
     const allSummaries: MatchSummary[] = storedSummaries.map(s => ({
       matchId: s.matchId,
       queueId: s.queueId,
@@ -47,8 +47,18 @@ export async function GET(request: NextRequest, { params }: Params) {
       gameMode: s.gameMode,
       participant: s.participant,
       win: s.win,
+      isRemake: s.isRemake,
       allParticipants: s.allParticipants,
       teams: s.teams,
+      // Full game score data
+      gameScore: s.gameScore,
+      gameGrade: s.gameGrade,
+      combatScore: s.combatScore,
+      farmingScore: s.farmingScore,
+      visionScore2: s.visionScore2,
+      objectivesScore: s.objectivesScore,
+      insights: s.insights,
+      improvements: s.improvements,
     }));
 
     // Sort by game creation time (most recent first)

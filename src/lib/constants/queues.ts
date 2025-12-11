@@ -30,6 +30,12 @@ export const QUEUE_FILTERS = [
 
 export type QueueFilterId = typeof QUEUE_FILTERS[number]['id'];
 
+// Queue IDs that support game score calculation (5v5 Summoner's Rift modes)
+export const SCORE_SUPPORTED_QUEUES = [420, 440, 400, 430, 490, 480, 700] as const;
+
+// Queue IDs that don't support scoring (different game modes)
+export const SCORE_UNSUPPORTED_QUEUES = [450, 1700, 1710, 900, 1020, 1300, 1400, 1900] as const;
+
 export type QueueId = keyof typeof QUEUE_TYPES;
 
 export function getQueueInfo(queueId: number) {

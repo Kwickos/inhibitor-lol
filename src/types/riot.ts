@@ -663,11 +663,23 @@ export interface MatchSummary {
   gameMode: string;
   participant: Participant;
   win: boolean;
-  // Full match data for expanded view
-  allParticipants: Participant[];
-  teams: Team[];
+  isRemake: boolean;
+  // Full match data for expanded view (lazy loaded)
+  allParticipants?: Participant[];
+  teams?: Team[];
   // Timeline data for gold graph
   timeline?: TimelineFrame[];
+  // Pre-calculated game score (stored in DB)
+  gameScore?: number;
+  gameGrade?: string;
+  // Sub-scores (0-100)
+  combatScore?: number;
+  farmingScore?: number;
+  visionScore2?: number;
+  objectivesScore?: number;
+  // Insights and improvements
+  insights?: string[];
+  improvements?: string[];
 }
 
 export interface ChampionStats {
