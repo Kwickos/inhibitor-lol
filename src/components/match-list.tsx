@@ -297,6 +297,52 @@ export function MatchList({ puuid, region, initialMatches = [], onNewMatches }: 
     }
   }, [allMatches, fetchBenchmarks]);
 
+  // Check and recalculate missing scores in background
+  const recalculateScoresIfNeeded = useCallback(async () => {
+    try {
+      // Check if there are matches without scores
+      const checkRes = await fetch(`/api/recalculate-scores/${puuid}`);
+      if (!checkRes.ok) return;
+      
+      const checkData = await checkRes.json();
+      if (checkData.needsRecalculation && checkData.matchesWithoutScores > 0) {
+        console.log(`Recalculating scores for ${checkData.matchesWithoutScores} matches...`);
+        
+        // Trigger recalculation in background
+        const recalcRes = await fetch(`/api/recalculate-scores/${puuid}`, { method: 'POST' });
+        if (recalcRes.ok) {
+          const recalcData = await recalcRes.json();
+          console.log(`Recalculated ${recalcData.updated} match scores`);
+          
+          // Refetch matches to get updated scores
+          if (recalcData.updated > 0) {
+            const dbRes = await fetch(`/api/matches/${puuid}?region=${region}`);
+            if (dbRes.ok) {
+              const dbData = await dbRes.json();
+              if (dbData.matches) {
+                setAllMatches(dbData.matches);
+                setCachedMatches(puuid, dbData.matches);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check/recalculate scores:', err);
+    }
+  }, [puuid, region]);
+
+  // Recalculate scores in background after initial load
+  useEffect(() => {
+    if (allMatches.length > 0) {
+      // Delay to not block initial render
+      const timeout = setTimeout(() => {
+        recalculateScoresIfNeeded();
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }
+  }, [allMatches.length > 0, recalculateScoresIfNeeded]); // Only run once when matches are loaded
+
   // Manual refresh
   const handleRefresh = () => {
     fetchMatches(true);

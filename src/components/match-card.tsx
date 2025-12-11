@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -8,9 +8,9 @@ import { Clock, Sword, Eye, ChevronDown, Target, Coins, TrendingUp, TrendingDown
 import { getChampionIconUrl, getItemIconUrl, getSummonerSpellIconUrl } from '@/lib/riot-api';
 import { TowerIcon, DragonIcon, BaronIcon, HeraldIcon, GrubsIcon, AtakhanIcon } from '@/components/icons/objective-icons';
 import { GoldGraph } from '@/components/gold-graph';
-import { getQueueInfo } from '@/lib/constants/queues';
+import { getQueueInfo, SCORE_SUPPORTED_QUEUES } from '@/lib/constants/queues';
 import { cn } from '@/lib/utils';
-import type { MatchSummary, Participant, TimelineFrame } from '@/types/riot';
+import type { MatchSummary, Participant, TimelineFrame, Team } from '@/types/riot';
 
 // Champion benchmark data from high elo
 export interface ChampionBenchmark {
@@ -52,7 +52,7 @@ function calculateGameScore(
   allParticipants: Participant[],
   gameDuration: number,
   isWin: boolean,
-  teamObjectives?: MatchSummary['teams'][0],
+  teamObjectives?: Team,
   benchmark?: ChampionBenchmark
 ): GameScore {
   const minutes = gameDuration / 60;
@@ -882,6 +882,14 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
   const [timelineTeamfights, setTimelineTeamfights] = useState<Teamfight[] | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
+  
+  // Lazy-loaded match details (allParticipants + teams)
+  const [matchDetails, setMatchDetails] = useState<{
+    allParticipants: Participant[];
+    teams: Team[];
+  } | null>(match.allParticipants ? { allParticipants: match.allParticipants, teams: match.teams || [] } : null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  
   const { participant } = match;
   const queueInfo = getQueueInfo(match.queueId);
 
@@ -907,17 +915,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
   const timeAgo = getTimeAgo(match.gameCreation);
   const duration = formatDuration(match.gameDuration);
 
-  // Split teams
-  const blueTeam = match.allParticipants?.filter(p => p.teamId === 100) || [];
-  const redTeam = match.allParticipants?.filter(p => p.teamId === 200) || [];
-  const playerTeam = participant.teamId === 100 ? blueTeam : redTeam;
-  const enemyTeam = participant.teamId === 100 ? redTeam : blueTeam;
-
-  // Calculate kill participation
-  const teamKills = playerTeam.reduce((sum, p) => sum + p.kills, 0);
-  const killParticipation = teamKills > 0
-    ? Math.round(((participant.kills + participant.assists) / teamKills) * 100)
-    : 0;
+  // Note: Team splits are calculated below after lazy-loaded data is available
 
   // Get benchmark for this champion/role
   const playerBenchmark = useMemo(() => {
@@ -927,19 +925,69 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
     return benchmarks[`${participant.championId}-${normalizedRole}`];
   }, [benchmarks, participant]);
 
-  // Calculate game score
+  // Check if this queue type supports scoring (exclude ARAM, Arena, etc.)
+  const supportsScoring = (SCORE_SUPPORTED_QUEUES as readonly number[]).includes(match.queueId);
+  
+  // Track if score was loaded from DB or needs to be saved
+  const scoreFromDb = match.gameScore !== undefined && match.gameGrade;
+  
+  // Use pre-calculated game score from DB if available, otherwise calculate
   const gameScore = useMemo(() => {
-    if (!match.allParticipants) return null;
-    const teamObjectives = match.teams?.find(t => t.teamId === participant.teamId);
+    // Don't calculate score for unsupported game modes (ARAM, Arena, etc.)
+    if (!supportsScoring) return null;
+    
+    // First, check if we have a pre-calculated score from the database
+    if (match.gameScore !== undefined && match.gameGrade) {
+      return {
+        overall: match.gameScore,
+        grade: match.gameGrade as GameScore['grade'],
+        combat: match.combatScore ?? 0,
+        farming: match.farmingScore ?? 0,
+        vision: match.visionScore2 ?? 0,
+        objectives: match.objectivesScore ?? 0,
+        insights: match.insights ?? [],
+        improvements: match.improvements ?? [],
+      };
+    }
+    
+    // Otherwise, calculate from participant data (requires allParticipants)
+    const participantsData = matchDetails?.allParticipants || match.allParticipants;
+    const teamsData = matchDetails?.teams || match.teams;
+    if (!participantsData || participantsData.length === 0) return null;
+    const teamObjectives = teamsData?.find(t => t.teamId === participant.teamId);
     return calculateGameScore(
       participant,
-      match.allParticipants,
+      participantsData,
       match.gameDuration,
       match.win,
       teamObjectives,
       playerBenchmark
     );
-  }, [match, participant, playerBenchmark]);
+  }, [match, matchDetails, participant, playerBenchmark, supportsScoring]);
+
+  // Save calculated score to DB if it was computed (not from DB)
+  const [scoreSaved, setScoreSaved] = useState(false);
+  useEffect(() => {
+    if (gameScore && !scoreFromDb && !scoreSaved && !isNaN(gameScore.overall)) {
+      // Save to DB in background
+      fetch(`/api/matches/${currentPuuid}/${match.matchId}/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameScore: gameScore.overall,
+          gameGrade: gameScore.grade,
+          combatScore: gameScore.combat,
+          farmingScore: gameScore.farming,
+          visionScore: gameScore.vision,
+          objectivesScore: gameScore.objectives,
+          insights: gameScore.insights,
+          improvements: gameScore.improvements,
+        }),
+      })
+        .then(() => setScoreSaved(true))
+        .catch(err => console.error('Failed to save score:', err));
+    }
+  }, [gameScore, scoreFromDb, scoreSaved, currentPuuid, match.matchId]);
 
   // Fetch timeline data when gold tab is selected
   const fetchTimeline = useCallback(async () => {
@@ -973,6 +1021,46 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
     }
   }, [fetchTimeline, timelineData, timelineLoading]);
 
+  // Lazy-load match details (allParticipants + teams) when card is expanded
+  useEffect(() => {
+    if (isExpanded && !matchDetails && !detailsLoading) {
+      setDetailsLoading(true);
+      fetch(`/api/matches/${currentPuuid}/${match.matchId}`)
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to fetch match details');
+          return res.json();
+        })
+        .then(data => {
+          setMatchDetails({
+            allParticipants: data.allParticipants,
+            teams: data.teams || []
+          });
+        })
+        .catch(err => {
+          console.error('Match details fetch error:', err);
+        })
+        .finally(() => {
+          setDetailsLoading(false);
+        });
+    }
+  }, [isExpanded, matchDetails, detailsLoading, currentPuuid, match.matchId]);
+
+  // Use lazy-loaded data or fallback to match prop
+  const allParticipants = matchDetails?.allParticipants || match.allParticipants;
+  const teams = matchDetails?.teams || match.teams;
+
+  // Split teams (using lazy-loaded data)
+  const blueTeam = allParticipants?.filter(p => p.teamId === 100) || [];
+  const redTeam = allParticipants?.filter(p => p.teamId === 200) || [];
+  const playerTeam = participant.teamId === 100 ? blueTeam : redTeam;
+  const enemyTeam = participant.teamId === 100 ? redTeam : blueTeam;
+
+  // Calculate kill participation - use stored value from DB if available, otherwise calculate from team data
+  const teamKills = playerTeam.reduce((sum, p) => sum + p.kills, 0);
+  const killParticipation = participant.challenges?.killParticipation !== undefined
+    ? Math.round(participant.challenges.killParticipation * 100) // DB stores 0-1, display as 0-100
+    : (teamKills > 0 ? Math.round(((participant.kills + participant.assists) / teamKills) * 100) : 0);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -986,16 +1074,18 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
           'group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 border transition-all cursor-pointer',
           isExpanded ? 'rounded-t-xl' : 'rounded-xl',
           'hover:bg-card/70',
-          match.win
-            ? 'bg-primary/5 border-primary/20 hover:border-primary/40'
-            : 'bg-[#ef4444]/5 border-[#ef4444]/20 hover:border-[#ef4444]/40'
+          match.isRemake
+            ? 'bg-muted/30 border-border/40 hover:border-border/60'
+            : match.win
+              ? 'bg-primary/5 border-primary/20 hover:border-primary/40'
+              : 'bg-[#ef4444]/5 border-[#ef4444]/20 hover:border-[#ef4444]/40'
         )}
       >
-        {/* Win/Loss indicator bar */}
+        {/* Win/Loss/Remake indicator bar */}
         <div
           className={cn(
             'absolute left-0 top-2 bottom-2 w-1 rounded-full',
-            match.win ? 'bg-primary' : 'bg-[#ef4444]'
+            match.isRemake ? 'bg-muted-foreground' : match.win ? 'bg-primary' : 'bg-[#ef4444]'
           )}
         />
 
@@ -1039,9 +1129,9 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
           <div className="flex items-center gap-2 flex-wrap">
             <span className={cn(
               'text-sm font-semibold',
-              match.win ? 'text-primary' : 'text-[#ef4444]'
+              match.isRemake ? 'text-muted-foreground' : match.win ? 'text-primary' : 'text-[#ef4444]'
             )}>
-              {match.win ? 'Victory' : 'Defeat'}
+              {match.isRemake ? 'Remake' : match.win ? 'Victory' : 'Defeat'}
             </span>
             <span className="text-xs text-muted-foreground">{queueInfo.shortName}</span>
             <span className="text-xs text-muted-foreground">•</span>
@@ -1104,8 +1194,8 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
           </div>
         </div>
 
-        {/* Game Score Badge - Refined design */}
-        {gameScore && (
+        {/* Game Score Badge - Refined design (not shown for remakes) */}
+        {gameScore && !match.isRemake && (
           <div className="hidden sm:flex flex-col items-center justify-center px-2">
             <div className={cn(
               'relative w-11 h-11 rounded-lg flex items-center justify-center border backdrop-blur-sm transition-all',
@@ -1152,7 +1242,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
 
       {/* Expanded details */}
       <AnimatePresence>
-        {isExpanded && match.allParticipants && (
+        {isExpanded && (detailsLoading || allParticipants) && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -1204,7 +1294,11 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
 
             {/* Tab content */}
             <div className="p-4">
-              {activeTab === 'overview' ? (
+              {detailsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : activeTab === 'overview' ? (
                 <motion.div
                   className="space-y-3"
                   initial="hidden"
@@ -1249,7 +1343,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                       <span className="text-muted-foreground">
                         - {participant.teamId === 100 ? 'Blue' : 'Red'} Team
                       </span>
-                      <TeamObjectives team={match.teams?.find(t => t.teamId === participant.teamId)} />
+                      <TeamObjectives team={teams?.find(t => t.teamId === participant.teamId)} />
                     </motion.div>
                     <div className="space-y-1">
                       {playerTeam.map((p) => (
@@ -1273,7 +1367,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                             region={region}
                             gameDuration={match.gameDuration}
                             isCurrentPlayer={p.puuid === currentPuuid}
-                            maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
+                            maxDamage={Math.max(...(allParticipants || []).map(x => x.totalDamageDealtToChampions))}
                           />
                         </motion.div>
                       ))}
@@ -1309,7 +1403,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                       <span className="text-muted-foreground">
                         - {participant.teamId === 100 ? 'Red' : 'Blue'} Team
                       </span>
-                      <TeamObjectives team={match.teams?.find(t => t.teamId !== participant.teamId)} />
+                      <TeamObjectives team={teams?.find(t => t.teamId !== participant.teamId)} />
                     </motion.div>
                     <div className="space-y-1">
                       {enemyTeam.map((p) => (
@@ -1333,7 +1427,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
                             region={region}
                             gameDuration={match.gameDuration}
                             isCurrentPlayer={p.puuid === currentPuuid}
-                            maxDamage={Math.max(...match.allParticipants.map(x => x.totalDamageDealtToChampions))}
+                            maxDamage={Math.max(...(allParticipants || []).map(x => x.totalDamageDealtToChampions))}
                           />
                         </motion.div>
                       ))}
@@ -1343,18 +1437,18 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
               ) : activeTab === 'analysis' ? (
                 <GameAnalysisTab
                   participant={participant}
-                  allParticipants={match.allParticipants}
+                  allParticipants={allParticipants || []}
                   gameDuration={match.gameDuration}
                   isWin={match.win}
                   gameScore={gameScore}
-                  teamObjectives={match.teams?.find(t => t.teamId === participant.teamId)}
+                  teamObjectives={teams?.find(t => t.teamId === participant.teamId)}
                 />
               ) : (
                 <GoldGraphTab
                   timelineData={timelineData}
                   loading={timelineLoading}
                   error={timelineError}
-                  allParticipants={match.allParticipants}
+                  allParticipants={allParticipants || []}
                   currentPuuid={currentPuuid}
                   playerTeamId={participant.teamId}
                   events={timelineEvents || undefined}
@@ -1372,7 +1466,7 @@ export function MatchCard({ match, currentPuuid, region, delay = 0, benchmarks }
   );
 }
 
-function TeamObjectives({ team }: { team?: MatchSummary['teams'][0] }) {
+function TeamObjectives({ team }: { team?: Team }) {
   if (!team) return null;
 
   // Build objectives list with icons and counts
@@ -1455,7 +1549,7 @@ function GameAnalysisTab({
   gameDuration: number;
   isWin: boolean;
   gameScore: GameScore | null;
-  teamObjectives?: MatchSummary['teams'][0];
+  teamObjectives?: Team;
 }) {
   const minutes = gameDuration / 60;
   const teammates = allParticipants.filter(p => p.teamId === participant.teamId);

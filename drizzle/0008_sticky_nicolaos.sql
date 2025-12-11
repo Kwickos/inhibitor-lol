@@ -1,0 +1,1 @@
+ALTER TABLE `player_matches` ADD `game_ended_in_early_surrender` integer;

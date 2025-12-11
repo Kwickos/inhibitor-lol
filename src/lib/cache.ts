@@ -12,6 +12,7 @@ import type {
   CurrentGameInfo,
 } from '@/types/riot';
 import * as riotApi from './riot-api';
+import { calculateGameScoreFull } from './game-score';
 
 // Generic cache function
 async function getCachedOrFetch<T>(
@@ -310,10 +311,12 @@ export async function storePlayerMatch(
 ): Promise<void> {
   try {
     const gameCreation = new Date(match.info.gameCreation);
+    const allParticipants = match.info.participants;
+    const teams = match.info.teams;
 
     // Store data for ALL 10 participants, not just the requested player
     // This way, when we visit another player's profile, we already have their match data
-    const values = match.info.participants.map(participant => {
+    const values = allParticipants.map(participant => {
       // Extract challenges data (may not exist for all game modes)
       const challenges = participant.challenges;
 
@@ -321,12 +324,47 @@ export async function storePlayerMatch(
       const primaryStyle = participant.perks?.styles?.find(s => s.description === 'primaryStyle');
       const secondaryStyle = participant.perks?.styles?.find(s => s.description === 'subStyle');
 
+      // Calculate full game score for this participant
+      const teamObjectives = teams?.find(t => t.teamId === participant.teamId);
+      let gameScore: number | null = null;
+      let gameGrade: string | null = null;
+      let combatScore: number | null = null;
+      let farmingScore: number | null = null;
+      let visionScore2: number | null = null;
+      let objectivesScore: number | null = null;
+      let insights: string[] | null = null;
+      let improvements: string[] | null = null;
+
+      try {
+        const score = calculateGameScoreFull(
+          participant,
+          allParticipants,
+          match.info.gameDuration,
+          participant.win,
+          teamObjectives
+        );
+        gameScore = score.overall;
+        gameGrade = score.grade;
+        combatScore = score.combat;
+        farmingScore = score.farming;
+        visionScore2 = score.vision;
+        objectivesScore = score.objectives;
+        insights = score.insights;
+        improvements = score.improvements;
+      } catch (e) {
+        // Score calculation failed, leave as null
+        console.warn('Failed to calculate game score:', e);
+      }
+
       return {
         puuid: participant.puuid,
         matchId: match.metadata.matchId,
         win: participant.win,
         championId: participant.championId,
         championName: participant.championName,
+        champLevel: participant.champLevel,
+        teamId: participant.teamId,
+        gameEndedInEarlySurrender: participant.gameEndedInEarlySurrender ?? false,
         kills: participant.kills,
         deaths: participant.deaths,
         assists: participant.assists,
@@ -379,6 +417,15 @@ export async function storePlayerMatch(
         // Game metadata (denormalized)
         queueId: match.info.queueId,
         gameVersion: match.info.gameVersion,
+        // Pre-calculated game score (full)
+        gameScore,
+        gameGrade,
+        combatScore,
+        farmingScore,
+        visionScore2,
+        objectivesScore,
+        insights,
+        improvements,
         createdAt: gameCreation,
       };
     });
@@ -461,68 +508,162 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
   gameDuration: number;
   gameMode: string;
   win: boolean;
+  isRemake: boolean;
   participant: Match['info']['participants'][0];
-  allParticipants: Match['info']['participants'];
-  teams: Match['info']['teams'];
+  allParticipants?: Match['info']['participants'];
+  teams?: Match['info']['teams'];
+  gameScore?: number;
+  gameGrade?: string;
+  combatScore?: number;
+  farmingScore?: number;
+  visionScore2?: number;
+  objectivesScore?: number;
+  insights?: string[];
+  improvements?: string[];
 }[]> {
   try {
-    // Get all match IDs for this player from playerMatches
-    const playerMatchData = await db
+    // FAST PATH: Query playerMatches + matches metadata (no JSON parsing needed)
+    const results = await db
       .select({
-        matchId: playerMatches.matchId,
+        // Match metadata
+        matchId: matches.matchId,
+        queueId: matches.queueId,
+        gameCreation: matches.gameCreation,
+        gameDuration: matches.gameDuration,
+        gameMode: matches.gameMode,
+        // PlayerMatch data (denormalized participant stats)
         win: playerMatches.win,
-        createdAt: playerMatches.createdAt,
+        championId: playerMatches.championId,
+        championName: playerMatches.championName,
+        champLevel: playerMatches.champLevel,
+        teamId: playerMatches.teamId,
+        gameEndedInEarlySurrender: playerMatches.gameEndedInEarlySurrender,
+        kills: playerMatches.kills,
+        deaths: playerMatches.deaths,
+        assists: playerMatches.assists,
+        cs: playerMatches.cs,
+        visionScore: playerMatches.visionScore,
+        teamPosition: playerMatches.teamPosition,
+        goldEarned: playerMatches.goldEarned,
+        totalDamageDealtToChampions: playerMatches.totalDamageDealtToChampions,
+        totalDamageTaken: playerMatches.totalDamageTaken,
+        wardsPlaced: playerMatches.wardsPlaced,
+        wardsKilled: playerMatches.wardsKilled,
+        controlWardsPlaced: playerMatches.controlWardsPlaced,
+        doubleKills: playerMatches.doubleKills,
+        tripleKills: playerMatches.tripleKills,
+        quadraKills: playerMatches.quadraKills,
+        pentaKills: playerMatches.pentaKills,
+        firstBloodKill: playerMatches.firstBloodKill,
+        item0: playerMatches.item0,
+        item1: playerMatches.item1,
+        item2: playerMatches.item2,
+        item3: playerMatches.item3,
+        item4: playerMatches.item4,
+        item5: playerMatches.item5,
+        item6: playerMatches.item6,
+        summoner1Id: playerMatches.summoner1Id,
+        summoner2Id: playerMatches.summoner2Id,
+        primaryRune: playerMatches.primaryRune,
+        secondaryRune: playerMatches.secondaryRune,
+        soloKills: playerMatches.soloKills,
+        turretKills: playerMatches.turretKills,
+        timePlayed: playerMatches.timePlayed,
+        killParticipation: playerMatches.killParticipation,
+        // Pre-calculated game score
+        gameScore: playerMatches.gameScore,
+        gameGrade: playerMatches.gameGrade,
+        combatScore: playerMatches.combatScore,
+        farmingScore: playerMatches.farmingScore,
+        visionScore2: playerMatches.visionScore2,
+        objectivesScore: playerMatches.objectivesScore,
+        insights: playerMatches.insights,
+        improvements: playerMatches.improvements,
       })
       .from(playerMatches)
+      .innerJoin(matches, eq(playerMatches.matchId, matches.matchId))
       .where(eq(playerMatches.puuid, puuid))
-      .orderBy(desc(playerMatches.createdAt));
+      .orderBy(desc(matches.gameCreation));
 
-    if (playerMatchData.length === 0) return [];
-
-    // Get match details in batches to avoid query size limits
-    const matchIds = playerMatchData.map(pm => pm.matchId);
-    const BATCH_SIZE = 50; // Fetch 50 matches at a time
-    const matchMap = new Map<string, typeof matches.$inferSelect>();
-
-    for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
-      const batchIds = matchIds.slice(i, i + BATCH_SIZE);
-      const batchResults = await db
-        .select()
-        .from(matches)
-        .where(sql`${matches.matchId} IN (${sql.join(batchIds.map(id => sql`${id}`), sql`, `)})`);
-
-      for (const match of batchResults) {
-        matchMap.set(match.matchId, match);
-      }
-    }
-
-    // Build summaries
+    // Build summaries with reconstructed participant object
     const summaries = [];
-    for (const pm of playerMatchData) {
-      const match = matchMap.get(pm.matchId);
-      if (!match) continue;
+    for (const row of results) {
+      // Reconstruct participant from playerMatches data
+      const participant = {
+        puuid,
+        championId: row.championId,
+        championName: row.championName,
+        champLevel: row.champLevel ?? 1,
+        teamId: row.teamId || 100, // Default to blue team for old data
+        kills: row.kills,
+        deaths: row.deaths,
+        assists: row.assists,
+        totalMinionsKilled: row.cs,
+        neutralMinionsKilled: 0,
+        visionScore: row.visionScore,
+        teamPosition: row.teamPosition || '',
+        individualPosition: row.teamPosition || '',
+        goldEarned: row.goldEarned || 0,
+        totalDamageDealtToChampions: row.totalDamageDealtToChampions || 0,
+        totalDamageTaken: row.totalDamageTaken || 0,
+        wardsPlaced: row.wardsPlaced || 0,
+        wardsKilled: row.wardsKilled || 0,
+        visionWardsBoughtInGame: row.controlWardsPlaced || 0,
+        doubleKills: row.doubleKills || 0,
+        tripleKills: row.tripleKills || 0,
+        quadraKills: row.quadraKills || 0,
+        pentaKills: row.pentaKills || 0,
+        firstBloodKill: row.firstBloodKill || false,
+        firstBloodAssist: false,
+        item0: row.item0 || 0,
+        item1: row.item1 || 0,
+        item2: row.item2 || 0,
+        item3: row.item3 || 0,
+        item4: row.item4 || 0,
+        item5: row.item5 || 0,
+        item6: row.item6 || 0,
+        summoner1Id: row.summoner1Id || 0,
+        summoner2Id: row.summoner2Id || 0,
+        perks: {
+          styles: [
+            { style: 0, selections: [{ perk: row.primaryRune || 0 }] },
+            { style: row.secondaryRune || 0, selections: [] },
+          ],
+        },
+        win: row.win,
+        gameEndedInEarlySurrender: row.gameEndedInEarlySurrender ?? false,
+        challenges: {
+          soloKills: row.soloKills || 0,
+          killParticipation: row.killParticipation ? row.killParticipation / 100 : undefined, // Stored as 0-100, API uses 0-1
+        },
+        turretKills: row.turretKills || 0,
+        timePlayed: row.timePlayed || row.gameDuration,
+      } as Match['info']['participants'][0];
 
-      // Parse JSON strings from DB
-      const participants = typeof match.participants === 'string'
-        ? JSON.parse(match.participants)
-        : match.participants;
-      const participant = participants.find((p: { puuid: string }) => p.puuid === puuid);
-      if (!participant) continue;
-
-      const teams = typeof match.teams === 'string'
-        ? JSON.parse(match.teams)
-        : (match.teams || []);
+      // Detect remake: early surrender OR game < 5 minutes (300 seconds)
+      const isRemake = row.gameEndedInEarlySurrender === true || row.gameDuration < 300;
 
       summaries.push({
-        matchId: match.matchId,
-        queueId: match.queueId,
-        gameCreation: match.gameCreation,
-        gameDuration: match.gameDuration,
-        gameMode: match.gameMode,
-        win: pm.win,
+        matchId: row.matchId,
+        queueId: row.queueId,
+        gameCreation: row.gameCreation,
+        gameDuration: row.gameDuration,
+        gameMode: row.gameMode,
+        win: row.win,
+        isRemake,
         participant,
-        allParticipants: participants,
-        teams,
+        // allParticipants and teams are NOT loaded here - loaded on demand
+        allParticipants: undefined,
+        teams: undefined,
+        // Pre-calculated game score from DB
+        gameScore: row.gameScore ?? undefined,
+        gameGrade: row.gameGrade ?? undefined,
+        combatScore: row.combatScore ?? undefined,
+        farmingScore: row.farmingScore ?? undefined,
+        visionScore2: row.visionScore2 ?? undefined,
+        objectivesScore: row.objectivesScore ?? undefined,
+        insights: row.insights ?? undefined,
+        improvements: row.improvements ?? undefined,
       });
     }
 
@@ -530,6 +671,38 @@ export async function getStoredMatchSummaries(puuid: string): Promise<{
   } catch (e) {
     console.warn('DB error reading match summaries:', e);
     return [];
+  }
+}
+
+// Get full match details (with all participants) for a single match
+export async function getMatchDetails(matchId: string, puuid: string): Promise<{
+  allParticipants: Match['info']['participants'];
+  teams: Match['info']['teams'];
+} | null> {
+  try {
+    const result = await db
+      .select({
+        participants: matches.participants,
+        teams: matches.teams,
+      })
+      .from(matches)
+      .where(eq(matches.matchId, matchId))
+      .limit(1);
+
+    if (result.length === 0) return null;
+
+    const row = result[0];
+    const participants = typeof row.participants === 'string'
+      ? JSON.parse(row.participants)
+      : row.participants;
+    const teams = typeof row.teams === 'string'
+      ? JSON.parse(row.teams)
+      : (row.teams || []);
+
+    return { allParticipants: participants, teams };
+  } catch (e) {
+    console.warn('DB error reading match details:', e);
+    return null;
   }
 }
 
