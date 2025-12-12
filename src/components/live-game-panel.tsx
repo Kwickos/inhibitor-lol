@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -85,12 +85,27 @@ export function LiveGamePanel({ currentPuuid, region, gameData, isActive = true 
   }, [gameData.gameStartTime, gameStarted]);
 
   // Poll to detect game end (every 30 seconds after game started)
+  // Use a ref to track if we've started polling to avoid resetting the interval
+  const pollingStartedRef = useRef(false);
+
   useEffect(() => {
-    if (!gameStarted || gameEnded || !isActive) return;
+    if (!gameStarted || gameEnded || !isActive) {
+      pollingStartedRef.current = false;
+      return;
+    }
+
+    // Start polling after 3 minutes of game time (remakes can happen at ~3min)
+    const minGameTime = 3 * 60; // 3 minutes
+    if (gameTime < minGameTime) return;
+
+    // Don't restart polling if already started
+    if (pollingStartedRef.current) return;
+    pollingStartedRef.current = true;
 
     const checkGameStatus = async () => {
       try {
-        const res = await fetch(`/api/live-game/${region}/${currentPuuid}`);
+        // Add cache-busting param to bypass Next.js cache
+        const res = await fetch(`/api/live-game/${region}/${currentPuuid}?t=${Date.now()}`);
         if (res.ok) {
           const data = await res.json();
           if (!data.inGame) {
@@ -99,15 +114,18 @@ export function LiveGamePanel({ currentPuuid, region, gameData, isActive = true 
         }
       } catch (err) {
         // Silently fail - will retry on next poll
+        console.warn('Live game poll failed:', err);
       }
     };
 
-    // Start polling after 5 minutes of game time (games rarely end before that)
-    const minGameTime = 5 * 60; // 5 minutes
-    if (gameTime < minGameTime) return;
+    // Initial check immediately
+    checkGameStatus();
 
     const pollInterval = setInterval(checkGameStatus, 30000); // Check every 30 seconds
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      pollingStartedRef.current = false;
+    };
   }, [gameStarted, gameEnded, isActive, region, currentPuuid, gameTime]);
 
   // Handle page refresh

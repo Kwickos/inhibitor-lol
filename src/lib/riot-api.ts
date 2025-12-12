@@ -92,15 +92,23 @@ async function fetchWithRetry<T>(
   }
 }
 
-async function fetchRiotApi<T>(url: string): Promise<T> {
+async function fetchRiotApi<T>(url: string, options?: { noCache?: boolean }): Promise<T> {
+  const fetchOptions: RequestInit & { next?: { revalidate: number } } = {
+    headers: {
+      'X-Riot-Token': RIOT_API_KEY || '',
+    },
+  };
+
+  // Don't cache if noCache is set (important for live game detection)
+  if (options?.noCache) {
+    fetchOptions.cache = 'no-store';
+  } else {
+    fetchOptions.next = { revalidate: 60 }; // Cache for 60 seconds
+  }
+
   const response = await fetchWithRetry(
     url,
-    {
-      headers: {
-        'X-Riot-Token': RIOT_API_KEY || '',
-      },
-      next: { revalidate: 60 }, // Cache for 60 seconds
-    },
+    fetchOptions,
     3,
     1000
   );
@@ -241,13 +249,14 @@ export async function getChampionMasteries(
   return fetchRiotApi<ChampionMastery[]>(endpoint);
 }
 
-// Spectator API
+// Spectator API - no caching to ensure accurate game state detection
 export async function getCurrentGame(puuid: string, region: RegionKey): Promise<CurrentGameInfo | null> {
   const host = getPlatformHost(region);
   // Note: Spectator V5 uses "by-summoner" in the path but takes PUUID as parameter
   const url = `https://${host}/lol/spectator/v5/active-games/by-summoner/${puuid}`;
   try {
-    return await fetchRiotApi<CurrentGameInfo>(url);
+    // Use noCache to ensure we always get fresh data for live game detection
+    return await fetchRiotApi<CurrentGameInfo>(url, { noCache: true });
   } catch (error) {
     if (error instanceof RiotApiError && error.status === 404) {
       return null; // Player not in game

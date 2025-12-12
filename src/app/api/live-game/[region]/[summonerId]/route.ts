@@ -4,6 +4,10 @@ import { REGIONS, type RegionKey } from '@/lib/constants/regions';
 import { RiotApiError, getAccountByPuuid } from '@/lib/riot-api';
 import { assignTeamRoles } from '@/lib/constants/champion-roles';
 
+// Force dynamic rendering - don't cache this route
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 interface Params {
   params: Promise<{
     region: string;
@@ -34,7 +38,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!liveGame) {
       return NextResponse.json(
         { inGame: false },
-        { status: 200 }
+        {
+          status: 200,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          },
+        }
       );
     }
 
@@ -116,18 +125,25 @@ export async function GET(request: NextRequest, { params }: Params) {
       })
     );
 
-    return NextResponse.json({
-      inGame: true,
-      gameId: liveGame.gameId,
-      gameMode: liveGame.gameMode,
-      gameType: liveGame.gameType,
-      gameStartTime: liveGame.gameStartTime,
-      gameLength: liveGame.gameLength,
-      mapId: liveGame.mapId,
-      queueId: liveGame.gameQueueConfigId,
-      bannedChampions: liveGame.bannedChampions,
-      participants: enrichedParticipants,
-    });
+    return NextResponse.json(
+      {
+        inGame: true,
+        gameId: liveGame.gameId,
+        gameMode: liveGame.gameMode,
+        gameType: liveGame.gameType,
+        gameStartTime: liveGame.gameStartTime,
+        gameLength: liveGame.gameLength,
+        mapId: liveGame.mapId,
+        queueId: liveGame.gameQueueConfigId,
+        bannedChampions: liveGame.bannedChampions,
+        participants: enrichedParticipants,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        },
+      }
+    );
   } catch (error) {
     console.error('Live game API error:', error);
 

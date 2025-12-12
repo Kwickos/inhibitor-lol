@@ -295,9 +295,12 @@ export async function getLiveGame(
 
   const liveGame = await riotApi.getCurrentGame(puuid, region);
 
-  // Only cache if player is in game (don't cache null)
   if (liveGame) {
+    // Cache if player is in game
     redis.set(cacheKey, liveGame, { ex: CACHE_TTL.LIVE_GAME }).catch(console.warn);
+  } else {
+    // Game ended - delete any stale cache to ensure accurate detection
+    redis.del(cacheKey).catch(console.warn);
   }
 
   return liveGame;
